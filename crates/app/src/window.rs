@@ -128,6 +128,7 @@ impl Window {
             });
         }
         this.update_title();
+        this.sync_scroll();
 
         // Las acciones solo guardan referencias débiles: la ventana de GTK mantiene vivo
         // este estado hasta que se cierra.
@@ -136,6 +137,24 @@ impl Window {
             keep_alive.take();
             glib::Propagation::Proceed
         });
+    }
+
+    /// Sincroniza el scroll vertical de ambos paneles. Las dos listas tienen las mismas
+    /// filas con la misma altura, así que basta con copiar la posición.
+    fn sync_scroll(&self) {
+        let syncing = Rc::new(Cell::new(false));
+        let left = self.left.scrolled.vadjustment();
+        let right = self.right.scrolled.vadjustment();
+        for (from, to) in [(&left, &right), (&right, &left)] {
+            let to = to.clone();
+            let syncing = Rc::clone(&syncing);
+            from.connect_value_changed(move |from| {
+                if !syncing.replace(true) {
+                    to.set_value(from.value());
+                    syncing.set(false);
+                }
+            });
+        }
     }
 
     /// Reconstruye las filas alineadas de los documentos actuales en un hilo de fondo.
@@ -178,6 +197,12 @@ impl Window {
             // Los documentos anteriores se liberan aquí, después de actualizar la vista.
             drop(old);
         });
+    }
+
+    /// Ajuste vertical del panel izquierdo (herramientas de desarrollo).
+    #[cfg(debug_assertions)]
+    pub fn left_vadjustment(&self) -> gtk::Adjustment {
+        self.left.scrolled.vadjustment()
     }
 
     /// Expande o colapsa la fila `position` en ambos paneles.

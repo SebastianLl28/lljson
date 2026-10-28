@@ -50,7 +50,7 @@ No se avanza de fase sin confirmación.
 - [x] Lista plana de filas + `GListModel` propio + `GtkListView`.
 - [x] Colores de sintaxis.
 - [x] Expandir/colapsar (modificando solo la lista plana).
-- [ ] Scroll sincronizado y filas alineadas entre paneles.
+- [x] Scroll sincronizado y filas alineadas entre paneles.
 - [ ] Probar con el archivo de 1 millón de nodos (fluidez y memoria).
 
 ## Fase 7 — App: diff visual

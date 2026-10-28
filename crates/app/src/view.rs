@@ -189,6 +189,7 @@ impl RowWidgets {
         summary.set_margin_start(12);
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
+            .hexpand(true)
             .css_classes(["json-row"])
             .build();
         root.append(&expander);
@@ -229,6 +230,8 @@ impl RowWidgets {
         }
         self.expander.set_opacity(0.0);
         self.expander.set_can_target(false);
+        self.root.remove_css_class("json-filler");
+        self.root.set_margin_start(0);
     }
 }
 
@@ -283,6 +286,10 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
     widgets.clear();
     let (Some(cell), Some(doc)) = (comparison.cell(side, position), comparison.document(side))
     else {
+        // Hueco de relleno: el otro panel tiene contenido en esta fila.
+        if position < comparison.rows.len() {
+            widgets.root.add_css_class("json-filler");
+        }
         return;
     };
     let depth = comparison.rows.get(position).map_or(0, |r| r.depth());

@@ -3,7 +3,8 @@
 //! `JSONLENS_SCREENSHOT=captura.png` renderiza la ventana a PNG y cierra la app, para
 //! revisar la interfaz sin capturar el escritorio. `JSONLENS_SCREENSHOT_DELAY_MS` fija la
 //! espera antes de la captura (1500 ms por defecto). `JSONLENS_TOGGLE=1,4` expande o
-//! colapsa esas filas (en orden) 500 ms antes de la captura.
+//! colapsa esas filas (en orden) 500 ms antes de la captura. `JSONLENS_SCROLL=px` desplaza
+//! el panel izquierdo 300 ms antes de la captura.
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -38,6 +39,18 @@ pub fn schedule_screenshot(app_window: &Rc<Window>) {
                         eprintln!("fila {position}: {:?}", start.elapsed());
                     }
                 }
+            },
+        );
+    }
+    if let Some(px) = std::env::var("JSONLENS_SCROLL")
+        .ok()
+        .and_then(|px| px.parse::<f64>().ok())
+    {
+        let adjustment = app_window.left_vadjustment();
+        glib::timeout_add_local_once(
+            Duration::from_millis(delay.saturating_sub(300)),
+            move || {
+                adjustment.set_value(px);
             },
         );
     }
