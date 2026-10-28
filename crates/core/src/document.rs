@@ -15,6 +15,11 @@ impl NodeId {
     /// Valor centinela para "sin nodo" (padre de la raíz, sin hijos, sin hermano).
     pub(crate) const NONE: NodeId = NodeId(u32::MAX);
 
+    /// Id del nodo en la posición `index` del arena (inválido si no cabe en `u32`).
+    pub fn from_index(index: usize) -> NodeId {
+        NodeId(u32::try_from(index).unwrap_or(u32::MAX))
+    }
+
     /// Posición del nodo en el arena.
     pub fn index(self) -> usize {
         self.0 as usize

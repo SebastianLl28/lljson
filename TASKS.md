@@ -16,7 +16,7 @@ No se avanza de fase sin confirmación.
 - [x] Modo tolerante (comas finales, comentarios `//` y `/* */`) y opción "autocorregir".
 - [x] Errores con línea y columna.
 - [x] Elegir estrategia de parseo (serde_json / simd-json / propio) con benchmark preliminar.
-- [ ] Tests unitarios con casos normales y extremos (vacíos, anidamiento profundo,
+- [x] Tests unitarios con casos normales y extremos (vacíos, anidamiento profundo,
       unicode y escapes, números grandes, archivos truncados).
 
 ## Fase 2 — Hash y formateador
