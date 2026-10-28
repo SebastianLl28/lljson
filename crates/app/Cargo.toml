@@ -11,3 +11,4 @@ jsonlens-core.workspace = true
 gtk.workspace = true
 adw.workspace = true
 async-channel.workspace = true
+clap.workspace = true

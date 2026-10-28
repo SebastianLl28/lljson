@@ -1,8 +1,8 @@
-//! Carga de documentos en un hilo de fondo: lectura de disco y parseo.
+//! Carga de documentos en un hilo de fondo: lectura de disco o stdin y parseo.
 //! El resultado vuelve al hilo de la UI por un `async_channel`. No depende de GTK.
 
 use std::fmt;
-use std::io;
+use std::io::{self, Read};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -12,6 +12,7 @@ use jsonlens_core::{Document, Mode, ParseError, ParseOptions, Source, parse};
 #[derive(Debug)]
 pub enum Input {
     File(PathBuf),
+    Stdin,
     /// Texto ya en memoria (portapapeles, arrastrar texto). `name` se muestra en el panel.
     Text {
         name: String,
@@ -27,6 +28,7 @@ impl Input {
                 || path.display().to_string(),
                 |n| n.to_string_lossy().into(),
             ),
+            Input::Stdin => "Entrada estándar".to_owned(),
             Input::Text { name, .. } => name.clone(),
         }
     }
@@ -89,6 +91,13 @@ pub fn load(input: Input) -> LoadResult {
     let name = input.name();
     let source = match input {
         Input::File(path) => Source::from_file(&path),
+        Input::Stdin => {
+            let mut bytes = Vec::new();
+            io::stdin()
+                .lock()
+                .read_to_end(&mut bytes)
+                .map(|_| Source::Owned(bytes))
+        }
         Input::Text { text, .. } => Ok(Source::from(text)),
     };
     let source = source.map_err(|source| LoadError::Io {
