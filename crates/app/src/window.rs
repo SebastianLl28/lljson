@@ -1,6 +1,7 @@
 //! Ventana principal: dos paneles lado a lado. Cada panel se llena abriendo un archivo,
 //! pegando del portapapeles o arrastrando archivos o texto sobre él.
 
+use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
@@ -81,6 +82,14 @@ impl Window {
             });
         }
         this.update_title();
+
+        // Las acciones solo guardan referencias débiles: la ventana de GTK mantiene vivo
+        // este estado hasta que se cierra.
+        let keep_alive = RefCell::new(Some(Rc::clone(&this)));
+        this.window.connect_close_request(move |_| {
+            keep_alive.take();
+            glib::Propagation::Proceed
+        });
         this
     }
 
