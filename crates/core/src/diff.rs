@@ -46,6 +46,23 @@ pub struct Change {
     pub right: Option<NodeId>,
 }
 
+/// Recuento de cambios. Un subárbol añadido o eliminado cuenta como un cambio.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Summary {
+    pub added: usize,
+    pub removed: usize,
+    /// Incluye los cambios de tipo.
+    pub modified: usize,
+    /// Cambios de tipo (subconjunto de `modified`).
+    pub type_changed: usize,
+}
+
+impl Summary {
+    pub fn total(&self) -> usize {
+        self.added + self.removed + self.modified
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DiffOptions {
     /// Clave para emparejar los elementos de los arrays (p. ej. `"id"`). Se aplica a los
@@ -64,6 +81,7 @@ pub struct DiffResult {
     left_match: Vec<NodeId>,
     right_match: Vec<NodeId>,
     changes: Vec<Change>,
+    summary: Summary,
 }
 
 impl DiffResult {
@@ -74,6 +92,7 @@ impl DiffResult {
             left_match: vec![NodeId::NONE; left_len],
             right_match: vec![NodeId::NONE; right_len],
             changes: Vec::new(),
+            summary: Summary::default(),
         }
     }
 
@@ -105,6 +124,10 @@ impl DiffResult {
     /// Diferencias en orden de documento.
     pub fn changes(&self) -> &[Change] {
         &self.changes
+    }
+
+    pub fn summary(&self) -> Summary {
+        self.summary
     }
 
     pub fn is_equal(&self) -> bool {
@@ -479,6 +502,16 @@ impl Differ<'_> {
     }
 
     fn record(&mut self, kind: ChangeKind, left: Option<NodeId>, right: Option<NodeId>) {
+        let summary = &mut self.result.summary;
+        match kind {
+            ChangeKind::Added => summary.added += 1,
+            ChangeKind::Removed => summary.removed += 1,
+            ChangeKind::Modified => summary.modified += 1,
+            ChangeKind::TypeChanged => {
+                summary.modified += 1;
+                summary.type_changed += 1;
+            }
+        }
         self.result.changes.push(Change { kind, left, right });
     }
 
@@ -788,6 +821,24 @@ mod tests {
         };
         let result = diff(&doc(a), &doc(b), &options);
         assert!(result.is_equal());
+    }
+
+    #[test]
+    fn summary_counts_changes() {
+        let (_, _, result) = run(
+            r#"{"a": 1, "b": "x", "c": [1, 2, 3], "d": {"e": 1}, "f": null}"#,
+            r#"{"a": 2, "b": 1, "c": [1, 2], "d": {"e": 1, "g": [4, 5]}, "h": true}"#,
+        );
+        let expected = Summary {
+            added: 2,
+            removed: 2,
+            modified: 2,
+            type_changed: 1,
+        };
+        assert_eq!(result.summary(), expected);
+        assert_eq!(result.summary().total(), result.changes().len());
+        let (_, _, equal) = run("[1]", "[1.0]");
+        assert_eq!(equal.summary(), Summary::default());
     }
 
     #[test]

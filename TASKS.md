@@ -31,7 +31,7 @@ No se avanza de fase sin confirmación.
 - [x] Arrays por índice y por clave configurable.
 - [x] Detección de cambio de tipo.
 - [x] Ignorar rutas.
-- [ ] Resultado del diff con resumen (añadidos/eliminados/modificados).
+- [x] Resultado del diff con resumen (añadidos/eliminados/modificados).
 - [ ] Tests.
 
 ## Fase 4 — CLI y benchmarks

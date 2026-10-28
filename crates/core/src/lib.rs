@@ -11,7 +11,9 @@ mod parser;
 mod path;
 mod source;
 
-pub use diff::{Change, ChangeKind, DiffOptions, DiffResult, DiffStatus, diff, pair_children};
+pub use diff::{
+    Change, ChangeKind, DiffOptions, DiffResult, DiffStatus, Summary, diff, pair_children,
+};
 pub use document::{Children, Document, Kind, Node, NodeId, Span};
 pub use error::{ErrorKind, ParseError};
 pub use format::{FormatOptions, Indent, format, format_node, minify};
