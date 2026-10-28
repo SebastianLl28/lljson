@@ -173,6 +173,17 @@ pub fn pair_children<'a>(
     let left_children: Vec<NodeId> = left.children(l).collect();
     let right_children: Vec<NodeId> = right.children(r).collect();
     let matches = match (left.kind(l), right.kind(r)) {
+        // Caso habitual: las mismas claves en el mismo orden. Se emparejan por posición
+        // sin construir la tabla hash (las repetidas quedan por orden de aparición).
+        (Some(Kind::Object), Some(Kind::Object))
+            if left_children.len() == right_children.len()
+                && left_children
+                    .iter()
+                    .zip(&right_children)
+                    .all(|(&a, &b)| left.key(a) == right.key(b)) =>
+        {
+            (0..left_children.len()).map(Some).collect()
+        }
         (Some(Kind::Object), Some(Kind::Object)) => match_by(
             left_children
                 .iter()

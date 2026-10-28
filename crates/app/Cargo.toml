@@ -12,3 +12,7 @@ gtk.workspace = true
 adw.workspace = true
 async-channel.workspace = true
 clap.workspace = true
+
+[features]
+# Herramientas de desarrollo (capturas, trazas y prueba de scroll) en builds release.
+devtools = []

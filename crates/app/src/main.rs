@@ -1,7 +1,7 @@
 //! jsonlens: compara y formatea JSON (GTK4 + libadwaita).
 
 mod args;
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "devtools"))]
 mod devtools;
 mod loader;
 mod pane;
@@ -19,6 +19,8 @@ use crate::pane::Side;
 const APP_ID: &str = "io.github.jsonlens.JsonLens";
 
 fn main() -> glib::ExitCode {
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    devtools::mark_start();
     // `clap` termina el proceso con `--help`, `--version` o argumentos inválidos.
     let (left, right) = match args::Args::parse().into_inputs() {
         Ok(inputs) => inputs,
@@ -49,8 +51,8 @@ fn main() -> glib::ExitCode {
             }
         }
         window.window.present();
-        #[cfg(debug_assertions)]
-        devtools::schedule_screenshot(&window);
+        #[cfg(any(debug_assertions, feature = "devtools"))]
+        devtools::install(&window);
     });
     // GTK no debe interpretar los argumentos: ya los procesó `clap`.
     let program: Vec<String> = std::env::args().take(1).collect();

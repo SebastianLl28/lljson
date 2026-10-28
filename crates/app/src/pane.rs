@@ -226,6 +226,12 @@ impl Pane {
         self.loading.set(false);
         match result {
             Ok(loaded) => {
+                #[cfg(any(debug_assertions, feature = "devtools"))]
+                crate::devtools::trace(&format!(
+                    "documento cargado: {} ({} ms)",
+                    loaded.name,
+                    loaded.elapsed.as_millis()
+                ));
                 // La lista se muestra cuando la ventana termine de construir las filas.
                 self.title.set_label(&loaded.name);
                 self.title.set_tooltip_text(Some(&describe(&loaded)));

@@ -194,13 +194,15 @@ impl Window {
             }
             this.left.show_list();
             this.right.show_list();
+            #[cfg(any(debug_assertions, feature = "devtools"))]
+            crate::devtools::rows_ready(len);
             // Los documentos anteriores se liberan aquí, después de actualizar la vista.
             drop(old);
         });
     }
 
     /// Ajuste vertical del panel izquierdo (herramientas de desarrollo).
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn left_vadjustment(&self) -> gtk::Adjustment {
         self.left.scrolled.vadjustment()
     }
