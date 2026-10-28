@@ -20,7 +20,7 @@ No se avanza de fase sin confirmación.
       unicode y escapes, números grandes, archivos truncados).
 
 ## Fase 2 — Hash y formateador
-- [ ] Hash por subárbol (xxh3) durante el parseo, independiente del orden de claves.
+- [x] Hash por subárbol (xxh3) durante el parseo, independiente del orden de claves.
 - [ ] Formatear (indentación configurable).
 - [ ] Minificar.
 - [ ] Ordenar claves.

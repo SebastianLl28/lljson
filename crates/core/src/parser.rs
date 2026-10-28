@@ -2,9 +2,13 @@
 //! Es iterativo (pila explícita): la profundidad de anidamiento no está limitada
 //! por la pila del hilo.
 
+use crate::decode::unescape;
 use crate::document::{Document, Kind, Node, NodeId, Span, flags};
 use crate::error::{ErrorKind, ParseError};
+use crate::hash;
 use crate::source::Source;
+
+use std::borrow::Cow;
 
 /// Los rangos se guardan como `u32`.
 const MAX_SOURCE_LEN: usize = u32::MAX as usize;
@@ -88,6 +92,8 @@ struct Frame {
     object: bool,
     /// Ya se leyó al menos un elemento (el siguiente debe ir precedido de `,`).
     has_value: bool,
+    /// Acumulador del hash: suma de miembros (objetos) o hash encadenado (arrays).
+    acc: u64,
 }
 
 struct Parser<'a> {
@@ -97,6 +103,8 @@ struct Parser<'a> {
     nodes: Vec<Node>,
     stack: Vec<Frame>,
     fixes: Vec<Fix>,
+    /// Buffer reutilizable para la forma canónica de los números.
+    scratch: Vec<u8>,
 }
 
 impl<'a> Parser<'a> {
@@ -119,6 +127,7 @@ impl<'a> Parser<'a> {
             nodes: Vec::with_capacity(bytes.len() / 16),
             stack: Vec::new(),
             fixes: Vec::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -275,33 +284,80 @@ impl<'a> Parser<'a> {
                     child_count: 0,
                     object,
                     has_value: false,
+                    acc: if object { 0 } else { hash::array_start() },
                 });
             }
             Some(b'"') => {
                 let (span, escaped) = self.string()?;
                 let value_flags = if escaped { flags::VALUE_ESCAPED } else { 0 };
-                self.push_node(Kind::String, key_flags | value_flags, key, span)?;
+                let raw = self.bytes.get(span.range()).unwrap_or_default();
+                let h = if escaped {
+                    hash::string(decode(raw).as_bytes())
+                } else {
+                    hash::string(raw)
+                };
+                self.push_scalar(Kind::String, key_flags | value_flags, key, span, h)?;
             }
             Some(b't') => {
                 self.literal("true")?;
                 let span = Span::new(start, self.pos);
-                self.push_node(Kind::Bool, key_flags | flags::TRUE, key, span)?;
+                let flags = key_flags | flags::TRUE;
+                self.push_scalar(Kind::Bool, flags, key, span, hash::boolean(true))?;
             }
             Some(b'f') => {
                 self.literal("false")?;
-                self.push_node(Kind::Bool, key_flags, key, Span::new(start, self.pos))?;
+                let span = Span::new(start, self.pos);
+                self.push_scalar(Kind::Bool, key_flags, key, span, hash::boolean(false))?;
             }
             Some(b'n') => {
                 self.literal("null")?;
-                self.push_node(Kind::Null, key_flags, key, Span::new(start, self.pos))?;
+                let span = Span::new(start, self.pos);
+                self.push_scalar(Kind::Null, key_flags, key, span, hash::null())?;
             }
             Some(b'-' | b'0'..=b'9') => {
                 let span = self.number()?;
-                self.push_node(Kind::Number, key_flags, key, span)?;
+                let raw = self.bytes.get(span.range()).unwrap_or_default();
+                let h = hash::number(raw, &mut self.scratch);
+                self.push_scalar(Kind::Number, key_flags, key, span, h)?;
             }
             _ => return Err(self.unexpected("un valor")),
         }
         Ok(())
+    }
+
+    /// Añade un valor escalar (hash ya conocido) y lo suma al hash del contenedor.
+    fn push_scalar(
+        &mut self,
+        kind: Kind,
+        flags: u8,
+        key: Span,
+        value: Span,
+        hash: u64,
+    ) -> Result<(), ParseError> {
+        let id = self.push_node(kind, flags, key, value)?;
+        if let Some(node) = self.nodes.get_mut(id.index()) {
+            node.hash = hash;
+        }
+        self.fold_into_parent(key, flags, hash);
+        Ok(())
+    }
+
+    /// Incorpora el hash de un hijo terminado al acumulador del contenedor abierto.
+    fn fold_into_parent(&mut self, key: Span, key_flags: u8, child: u64) {
+        let Some(frame) = self.stack.last_mut() else {
+            return;
+        };
+        if frame.object {
+            let raw = self.bytes.get(key.range()).unwrap_or_default();
+            let member = if key_flags & flags::KEY_ESCAPED != 0 {
+                hash::member(decode(raw).as_bytes(), child)
+            } else {
+                hash::member(raw, child)
+            };
+            frame.acc = frame.acc.wrapping_add(member);
+        } else {
+            frame.acc = hash::array_push(frame.acc, child);
+        }
     }
 
     /// Añade un nodo al arena y lo enlaza como último hijo del contenedor abierto.
@@ -346,19 +402,30 @@ impl<'a> Parser<'a> {
             child_count: 0,
             key,
             value,
+            hash: 0,
         });
         Ok(id)
     }
 
-    /// Consume `}` o `]` y cierra el contenedor de la cima de la pila.
+    /// Consume `}` o `]`, cierra el contenedor de la cima y calcula su hash.
     fn close_container(&mut self) {
         self.pos += 1;
-        if let Some(frame) = self.stack.pop()
-            && let Some(node) = self.nodes.get_mut(frame.id.index())
-        {
-            node.value.end = self.pos as u32;
-            node.child_count = frame.child_count;
-        }
+        let Some(frame) = self.stack.pop() else {
+            return;
+        };
+        let hash = if frame.object {
+            hash::object_finish(frame.acc, frame.child_count)
+        } else {
+            hash::array_finish(frame.acc, frame.child_count)
+        };
+        let Some(node) = self.nodes.get_mut(frame.id.index()) else {
+            return;
+        };
+        node.value.end = self.pos as u32;
+        node.child_count = frame.child_count;
+        node.hash = hash;
+        let (key, key_flags) = (node.key, node.flags);
+        self.fold_into_parent(key, key_flags, hash);
     }
 
     fn literal(&mut self, word: &'static str) -> Result<(), ParseError> {
@@ -471,6 +538,11 @@ impl<'a> Parser<'a> {
         }
         i
     }
+}
+
+/// Decodifica un string del texto (ya validado por el parser).
+fn decode(raw: &[u8]) -> Cow<'_, str> {
+    std::str::from_utf8(raw).map(unescape).unwrap_or_default()
 }
 
 #[cfg(test)]

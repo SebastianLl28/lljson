@@ -4,6 +4,7 @@
 mod decode;
 mod document;
 mod error;
+mod hash;
 mod parser;
 mod source;
 

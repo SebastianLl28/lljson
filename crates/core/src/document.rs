@@ -107,6 +107,8 @@ pub struct Node {
     pub(crate) key: Span,
     /// Strings: contenido sin comillas. Números: el literal. Contenedores: de `{`/`[` a `}`/`]`.
     pub(crate) value: Span,
+    /// Hash semántico del subárbol (ver `hash.rs`).
+    pub(crate) hash: u64,
 }
 
 impl Node {
@@ -137,6 +139,12 @@ impl Node {
 
     pub fn value_span(&self) -> Span {
         self.value
+    }
+
+    /// Hash semántico del subárbol: valores JSON iguales tienen el mismo hash,
+    /// sin importar el orden de las claves ni el formato del texto.
+    pub fn hash(&self) -> u64 {
+        self.hash
     }
 
     pub(crate) fn has(&self, flag: u8) -> bool {
@@ -179,6 +187,10 @@ impl Document {
 
     pub fn kind(&self, id: NodeId) -> Option<Kind> {
         self.node(id).map(Node::kind)
+    }
+
+    pub fn hash(&self, id: NodeId) -> Option<u64> {
+        self.node(id).map(Node::hash)
     }
 
     /// Hijos directos de un nodo, en orden de aparición.
@@ -270,6 +282,7 @@ mod tests {
             child_count: 0,
             key: Span::EMPTY,
             value,
+            hash: 0,
         }
     }
 
@@ -292,7 +305,7 @@ mod tests {
 
     #[test]
     fn node_stays_compact() {
-        assert!(std::mem::size_of::<Node>() <= 40);
+        assert!(std::mem::size_of::<Node>() <= 48);
     }
 
     #[test]
