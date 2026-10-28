@@ -41,7 +41,12 @@ pub struct Change {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct DiffOptions {}
+pub struct DiffOptions {
+    /// Clave para emparejar los elementos de los arrays (p. ej. `"id"`). Se aplica a los
+    /// arrays cuyos elementos, en ambos lados, son todos objetos con esa clave; el resto
+    /// se compara por índice.
+    pub array_key: Option<String>,
+}
 
 /// Resultado del diff: estado de cada nodo, emparejamientos y lista de cambios.
 #[derive(Debug)]
@@ -117,7 +122,8 @@ pub fn diff(left: &Document, right: &Document, options: &DiffOptions) -> DiffRes
 }
 
 /// Empareja los hijos de dos contenedores del mismo tipo: los objetos por clave
-/// (las claves repetidas, por orden de aparición) y los arrays por índice.
+/// (las claves repetidas, por orden de aparición) y los arrays por índice o por
+/// [`DiffOptions::array_key`].
 /// El orden de salida es el del contenedor izquierdo; cada hijo que solo existe en el
 /// derecho se coloca detrás del par de su predecesor en el derecho (y detrás de los
 /// hijos eliminados que sigan a ese par).
@@ -126,7 +132,7 @@ pub fn pair_children<'a>(
     l: NodeId,
     right: &'a Document,
     r: NodeId,
-    _options: &DiffOptions,
+    options: &DiffOptions,
 ) -> Vec<(Option<NodeId>, Option<NodeId>)> {
     let left_children: Vec<NodeId> = left.children(l).collect();
     let right_children: Vec<NodeId> = right.children(r).collect();
@@ -139,12 +145,38 @@ pub fn pair_children<'a>(
                 .iter()
                 .map(|&c| right.key(c).unwrap_or_default()),
         ),
-        (Some(Kind::Array), Some(Kind::Array)) => (0..left_children.len())
-            .map(|i| (i < right_children.len()).then_some(i))
-            .collect(),
+        (Some(Kind::Array), Some(Kind::Array)) => {
+            let keyed = options.array_key.as_deref().and_then(|key| {
+                let left_keys = element_keys(left, &left_children, key)?;
+                let right_keys = element_keys(right, &right_children, key)?;
+                Some(match_by(left_keys.into_iter(), right_keys.into_iter()))
+            });
+            keyed.unwrap_or_else(|| {
+                (0..left_children.len())
+                    .map(|i| (i < right_children.len()).then_some(i))
+                    .collect()
+            })
+        }
         _ => vec![None; left_children.len()],
     };
     merge(&left_children, &right_children, &matches)
+}
+
+/// Hash del valor de `key` en cada elemento, o `None` si algún elemento no es un
+/// objeto con esa clave.
+fn element_keys(doc: &Document, elements: &[NodeId], key: &str) -> Option<Vec<u64>> {
+    elements
+        .iter()
+        .map(|&element| {
+            if doc.kind(element)? != Kind::Object {
+                return None;
+            }
+            let member = doc
+                .children(element)
+                .find(|&c| doc.key(c).as_deref() == Some(key))?;
+            doc.hash(member)
+        })
+        .collect()
 }
 
 /// Para cada elemento izquierdo, el índice del derecho con la misma clave.
@@ -420,6 +452,77 @@ mod tests {
         assert_eq!(
             changes("[1]", "[1, [2]]"),
             vec![change(ChangeKind::Added, "", "[2]")]
+        );
+    }
+
+    fn keyed() -> DiffOptions {
+        DiffOptions {
+            array_key: Some("id".to_owned()),
+        }
+    }
+
+    fn keyed_changes(a: &str, b: &str) -> Vec<(ChangeKind, String, String)> {
+        let (left, right) = (doc(a), doc(b));
+        let result = diff(&left, &right, &keyed());
+        result
+            .changes()
+            .iter()
+            .map(|c| {
+                let l = c.left.map(|id| left.raw(id).to_owned()).unwrap_or_default();
+                let r = c
+                    .right
+                    .map(|id| right.raw(id).to_owned())
+                    .unwrap_or_default();
+                (c.kind, l, r)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn arrays_by_key_survive_insertions_and_reordering() {
+        let a = r#"[{"id": 1, "v": "a"}, {"id": 2, "v": "b"}, {"id": 3, "v": "c"}]"#;
+        let b = r#"[{"id": 0, "v": "z"}, {"id": 3, "v": "c"}, {"id": 1, "v": "A"}, {"id": 2, "v": "b"}]"#;
+        assert_eq!(
+            keyed_changes(a, b),
+            vec![
+                change(ChangeKind::Added, "", r#"{"id": 0, "v": "z"}"#),
+                change(ChangeKind::Modified, "a", "A"),
+            ]
+        );
+        // Por índice, la inserción al principio desplaza todos los elementos.
+        assert_eq!(changes(a, b).len(), 7);
+    }
+
+    #[test]
+    fn arrays_by_key_match_key_values_semantically() {
+        let a = r#"[{"id": 1, "v": 1}, {"id": "1", "v": 2}]"#;
+        let b = r#"[{"id": "1", "v": 2}, {"id": 1.0, "v": 3}]"#;
+        assert_eq!(
+            keyed_changes(a, b),
+            vec![change(ChangeKind::Modified, "1", "3")]
+        );
+    }
+
+    #[test]
+    fn arrays_by_key_fall_back_to_index() {
+        // Un elemento sin la clave (o que no es objeto) hace que el array use índices.
+        let a = r#"[{"id": 1}, {"id": 2}]"#;
+        let b = r#"[{"id": 2}, {"x": 1}]"#;
+        // 1→2 modificado; "id" eliminado y "x" añadido en el segundo elemento.
+        assert_eq!(keyed_changes(a, b).len(), 3);
+        assert_eq!(keyed_changes("[1, 2]", "[2, 1]").len(), 2);
+    }
+
+    #[test]
+    fn arrays_by_key_handle_removals_and_duplicates() {
+        let a = r#"[{"id": 1}, {"id": 1, "n": 2}, {"id": 2}]"#;
+        let b = r#"[{"id": 1}, {"id": 1, "n": 3}]"#;
+        assert_eq!(
+            keyed_changes(a, b),
+            vec![
+                change(ChangeKind::Modified, "2", "3"),
+                change(ChangeKind::Removed, r#"{"id": 2}"#, ""),
+            ]
         );
     }
 
