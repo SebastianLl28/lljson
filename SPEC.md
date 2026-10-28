@@ -9,9 +9,22 @@ sin congelarse.
 ## Stack
 - **Lenguaje:** Rust, edición 2024. Toolchain mínima: **Rust 1.92** (la exige `gtk4` 0.11).
 - **UI:** GTK4 + libadwaita (gtk4-rs). Plan B si la UI se complica demasiado: egui.
-- **Parseo:** serde_json o simd-json, o parser propio si hace falta para construir el arena
-  directamente y soportar el modo tolerante. Se elige la opción que cumpla las metas de
-  rendimiento (decisión a tomar y justificar con benchmarks en la Fase 1).
+- **Parseo:** parser propio (`crates/core/src/parser.rs`) que construye el arena directamente
+  y soporta el modo tolerante. **Decisión tomada en la Fase 1** con el benchmark
+  `crates/core/benches/parse.rs` (1 008 001 nodos, 18,9 MiB, 12 hilos, perfil release, 2026-10-28):
+
+  | Opción | Tiempo | ¿Arena? | ¿Tolerante? |
+  |---|---|---|---|
+  | jsonlens estricto | ~44 ms | sí | no aplica |
+  | jsonlens tolerante | ~40 ms | sí | sí |
+  | serde_json → `Value` | ~182 ms | no (requiere 2.ª pasada) | no |
+  | simd-json → `BorrowedValue` | ~89 ms | no (requiere 2.ª pasada) | no |
+  | simd-json → tape | ~26 ms | no (requiere 2.ª pasada) | no |
+
+  El tape de simd-json es más rápido, pero no da el arena ni el modo tolerante y decodifica
+  los strings modificando el buffer (incompatible con rangos sobre el original y con el mmap
+  de solo lectura). El parser propio cumple la meta (< 1 s) con margen de ~20×.
+  serde_json y simd-json quedan solo como dev-dependencies (tests de referencia y benchmark).
 - **Hash de subárboles:** xxh3 (`xxhash-rust`), determinista y rápido.
   `ahash` para tablas hash internas (p. ej. emparejar elementos de arrays por clave).
 - **Lectura de archivos grandes:** memmap2.
@@ -34,8 +47,8 @@ No se actualizan sin aprobación.
 | `glib` | 0.22.10 | Bucle principal, subclases de GObject | app |
 | `gio` | 0.22.10 | `GListModel`, archivos, portapapeles | app |
 | `serde` | 1.0.229 | Serialización (opciones, config) | core, cli |
-| `serde_json` | 1.0.154 | Parser candidato / referencia en tests | core |
-| `simd-json` | 0.19.0 | Parser candidato (publicada el 2026-10-27, muy reciente: validar en Fase 1) | core |
+| `serde_json` | 1.0.154 | Referencia en tests y benchmark (dev) | core |
+| `simd-json` | 0.19.0 | Comparación en el benchmark de parseo (dev) | core |
 | `xxhash-rust` | 0.8.19 | Hash xxh3 de subárboles (feature `xxh3`) | core |
 | `ahash` | 0.8.12 | HashMap rápido para emparejar por clave | core |
 | `memmap2` | 0.9.12 | Lectura mapeada de archivos grandes | core |

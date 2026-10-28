@@ -9,3 +9,12 @@ publish.workspace = true
 [dependencies]
 memmap2.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+serde_json.workspace = true
+simd-json.workspace = true
+
+[[bench]]
+name = "parse"
+harness = false
