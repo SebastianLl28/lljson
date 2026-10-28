@@ -27,7 +27,7 @@ No se avanza de fase sin confirmación.
 - [x] Tests.
 
 ## Fase 3 — Motor de diff
-- [ ] Diff semántico usando hashes para saltar subárboles iguales.
+- [x] Diff semántico usando hashes para saltar subárboles iguales.
 - [ ] Arrays por índice y por clave configurable.
 - [ ] Detección de cambio de tipo.
 - [ ] Ignorar rutas.

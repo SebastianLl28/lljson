@@ -193,6 +193,22 @@ impl Document {
         self.node(id).map(Node::hash)
     }
 
+    /// Fin (exclusivo) del subárbol de un nodo. Los nodos están en preorden, así que
+    /// el subárbol ocupa el rango contiguo `id.index()..subtree_end(id)` del arena.
+    pub fn subtree_end(&self, id: NodeId) -> usize {
+        let mut current = id;
+        while let Some(node) = self.node(current) {
+            if let Some(next) = node.next_sibling() {
+                return next.index();
+            }
+            match node.parent() {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        self.nodes.len()
+    }
+
     /// Hijos directos de un nodo, en orden de aparición.
     pub fn children(&self, id: NodeId) -> Children<'_> {
         let next = self.node(id).map_or(NodeId::NONE, |n| n.first_child);
@@ -319,6 +335,14 @@ mod tests {
         assert_eq!(doc.string(kids[1]).as_deref(), Some("x\ty"));
         assert_eq!(doc.node(kids[1]).and_then(Node::parent), Some(doc.root()));
         assert_eq!(doc.key(doc.root()), None);
+    }
+
+    #[test]
+    fn subtree_ranges() {
+        let doc = sample();
+        assert_eq!(doc.subtree_end(doc.root()), 3);
+        assert_eq!(doc.subtree_end(NodeId(1)), 2);
+        assert_eq!(doc.subtree_end(NodeId(2)), 3);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! Sin dependencias de UI.
 
 mod decode;
+mod diff;
 mod document;
 mod error;
 mod format;
@@ -9,6 +10,7 @@ mod hash;
 mod parser;
 mod source;
 
+pub use diff::{Change, ChangeKind, DiffOptions, DiffResult, DiffStatus, diff, pair_children};
 pub use document::{Children, Document, Kind, Node, NodeId, Span};
 pub use error::{ErrorKind, ParseError};
 pub use format::{FormatOptions, Indent, format, format_node, minify};
