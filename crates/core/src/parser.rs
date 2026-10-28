@@ -102,10 +102,14 @@ struct Parser<'a> {
 impl<'a> Parser<'a> {
     fn new(bytes: &'a [u8], tolerant: bool) -> Result<Parser<'a>, ParseError> {
         if bytes.len() > MAX_SOURCE_LEN {
-            return Err(ParseError::new(ErrorKind::TooLarge, 0));
+            return Err(ParseError::new(ErrorKind::TooLarge, 0, &[]));
         }
         if let Err(e) = std::str::from_utf8(bytes) {
-            return Err(ParseError::new(ErrorKind::InvalidUtf8, e.valid_up_to()));
+            return Err(ParseError::new(
+                ErrorKind::InvalidUtf8,
+                e.valid_up_to(),
+                bytes,
+            ));
         }
         Ok(Parser {
             bytes,
@@ -179,7 +183,7 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&self, kind: ErrorKind, offset: usize) -> ParseError {
-        ParseError::new(kind, offset)
+        ParseError::new(kind, offset, self.bytes)
     }
 
     /// Error en la posición actual: fin del texto o carácter inesperado.
@@ -630,7 +634,24 @@ mod tests {
             Ok(_) => panic!("debería fallar"),
             Err(e) => e,
         };
-        assert_eq!(e, ParseError::new(ErrorKind::InvalidUtf8, 3));
+        assert_eq!(
+            (e.kind, e.offset, e.line, e.column),
+            (ErrorKind::InvalidUtf8, 3, 1, 4)
+        );
+    }
+
+    #[test]
+    fn errors_report_line_and_column() {
+        let e = err("{\n  \"nombre\": \"Ana\",\n  \"edad\": 3x\n}");
+        assert_eq!((e.line, e.column), (3, 12));
+        assert_eq!(
+            e.to_string(),
+            "línea 3, columna 12: carácter inesperado 'x': se esperaba ',' o '}'"
+        );
+        let e = err("[\n  1,\n  2,\n]");
+        assert_eq!((e.kind, e.line, e.column), (ErrorKind::TrailingComma, 3, 4));
+        let e = err("{\"a\": [1, 2}");
+        assert_eq!((e.line, e.column), (1, 12));
     }
 
     #[test]

@@ -14,7 +14,7 @@ No se avanza de fase sin confirmación.
 - [x] Estructura de árbol en arena (`Vec<Node>`, índices `u32`, strings como rangos).
 - [x] Parser estricto.
 - [x] Modo tolerante (comas finales, comentarios `//` y `/* */`) y opción "autocorregir".
-- [ ] Errores con línea y columna.
+- [x] Errores con línea y columna.
 - [ ] Elegir estrategia de parseo (serde_json / simd-json / propio) con benchmark preliminar.
 - [ ] Tests unitarios con casos normales y extremos (vacíos, anidamiento profundo,
       unicode y escapes, números grandes, archivos truncados).
