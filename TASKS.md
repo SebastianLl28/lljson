@@ -41,7 +41,7 @@ No se avanza de fase sin confirmación.
 - [x] Reportar resultados contra las metas de rendimiento.
 
 ## Fase 5 — App: estructura
-- [ ] Ventana libadwaita con dos paneles lado a lado.
+- [x] Ventana libadwaita con dos paneles lado a lado.
 - [ ] Abrir archivos, pegar, arrastrar y soltar.
 - [ ] Argumentos de terminal (`jsonlens a.json b.json`, `-` para stdin).
 - [ ] Parseo en hilo de fondo con indicador de progreso (> ~150 ms).
