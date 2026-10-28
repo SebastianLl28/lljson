@@ -1,4 +1,5 @@
-//! Núcleo de jsonlens: parser, árbol en arena, hash, formateador, diff y generador de pruebas.
+//! Núcleo de jsonlens: parser, árbol en arena, hash, formateador, diff, filas de la vista
+//! y generador de pruebas.
 //! Sin dependencias de UI.
 
 mod decode;
@@ -10,6 +11,7 @@ mod generate;
 mod hash;
 mod parser;
 mod path;
+mod rows;
 mod source;
 
 pub use diff::{
@@ -23,6 +25,7 @@ pub use generate::{
 };
 pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
 pub use path::{IgnoreRule, PatternError, PatternSegment};
+pub use rows::{Cell, CellText, MAX_VALUE_CHARS, Row, RowKind, Rows, Splice, TokenKind, cell_text};
 pub use source::Source;
 
 /// Versión de la librería.

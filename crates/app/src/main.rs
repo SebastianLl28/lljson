@@ -1,8 +1,11 @@
 //! jsonlens: compara y formatea JSON (GTK4 + libadwaita).
 
 mod args;
+#[cfg(debug_assertions)]
+mod devtools;
 mod loader;
 mod pane;
+mod view;
 mod window;
 
 use std::cell::Cell;
@@ -45,6 +48,8 @@ fn main() -> glib::ExitCode {
             }
         }
         window.window.present();
+        #[cfg(debug_assertions)]
+        devtools::schedule_screenshot(&window.window);
     });
     // GTK no debe interpretar los argumentos: ya los procesó `clap`.
     let program: Vec<String> = std::env::args().take(1).collect();

@@ -1,14 +1,17 @@
 //! Ventana principal: dos paneles lado a lado. Cada panel se llena abriendo un archivo,
-//! pegando del portapapeles o arrastrando archivos o texto sobre él.
+//! pegando del portapapeles o arrastrando archivos o texto sobre él. Ambos paneles
+//! muestran la misma lista de filas alineadas, que se construye en un hilo de fondo.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
+use jsonlens_core::{DiffOptions, Rows};
 
 use crate::loader::Input;
 use crate::pane::{Pane, Side};
+use crate::view::{self, Comparison, RowsModel};
 
 const DEFAULT_WIDTH: i32 = 1200;
 const DEFAULT_HEIGHT: i32 = 760;
@@ -27,12 +30,45 @@ pub struct Window {
     toasts: adw::ToastOverlay,
     left: Rc<Pane>,
     right: Rc<Pane>,
+    comparison: Rc<RefCell<Comparison>>,
+    left_model: RowsModel,
+    right_model: RowsModel,
+    /// Identifica la última construcción de filas pedida.
+    rows_generation: Cell<u64>,
 }
 
 impl Window {
     pub fn new(app: &adw::Application) -> Rc<Window> {
-        let left = Pane::new(Side::Left);
-        let right = Pane::new(Side::Right);
+        let this = Rc::new_cyclic(|weak: &Weak<Window>| Window::build(app, weak));
+        this.setup();
+        this
+    }
+
+    fn build(app: &adw::Application, weak: &Weak<Window>) -> Window {
+        let comparison = Rc::new(RefCell::new(Comparison::default()));
+        let weak_toggle = weak.clone();
+        let on_toggle: Rc<dyn Fn(u32)> = Rc::new(move |position| {
+            if let Some(this) = weak_toggle.upgrade() {
+                this.toggle(position);
+            }
+        });
+        let left_model = RowsModel::new();
+        let right_model = RowsModel::new();
+        let left = Pane::new(
+            Side::Left,
+            &left_model,
+            view::factory(Side::Left, Rc::clone(&comparison), Rc::clone(&on_toggle)),
+        );
+        let right = Pane::new(
+            Side::Right,
+            &right_model,
+            view::factory(Side::Right, Rc::clone(&comparison), Rc::clone(&on_toggle)),
+        );
+        for pane in [&left, &right] {
+            let on_toggle = Rc::clone(&on_toggle);
+            pane.list
+                .connect_activate(move |_, position| on_toggle(position));
+        }
 
         let paned = gtk::Paned::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -64,20 +100,30 @@ impl Window {
             .content(&view)
             .build();
 
-        let this = Rc::new(Window {
+        Window {
             window,
             title,
             toasts,
             left,
             right,
-        });
+            comparison,
+            left_model,
+            right_model,
+            rows_generation: Cell::new(0),
+        }
+    }
+
+    /// Conecta las acciones y señales; se llama una vez, ya dentro de un `Rc`.
+    fn setup(self: &Rc<Self>) {
+        let this = self;
         for side in [Side::Left, Side::Right] {
             this.setup_actions(side);
             this.setup_drop(side);
-            let weak = Rc::downgrade(&this);
+            let weak = Rc::downgrade(this);
             this.pane(side).connect_changed(move || {
                 if let Some(this) = weak.upgrade() {
                     this.update_title();
+                    this.rebuild_rows();
                 }
             });
         }
@@ -85,12 +131,68 @@ impl Window {
 
         // Las acciones solo guardan referencias débiles: la ventana de GTK mantiene vivo
         // este estado hasta que se cierra.
-        let keep_alive = RefCell::new(Some(Rc::clone(&this)));
+        let keep_alive = RefCell::new(Some(Rc::clone(this)));
         this.window.connect_close_request(move |_| {
             keep_alive.take();
             glib::Propagation::Proceed
         });
-        this
+    }
+
+    /// Reconstruye las filas alineadas de los documentos actuales en un hilo de fondo.
+    fn rebuild_rows(self: &Rc<Self>) {
+        let generation = self.rows_generation.get() + 1;
+        self.rows_generation.set(generation);
+        let left = self.left.document();
+        let right = self.right.document();
+        let (sender, receiver) = async_channel::bounded(1);
+        let spawned = std::thread::Builder::new()
+            .name("jsonlens-filas".to_owned())
+            .spawn(move || {
+                let rows = Rows::new(left.as_deref(), right.as_deref(), DiffOptions::default());
+                let _ = sender.send_blocking(Comparison { left, right, rows });
+            });
+        if let Err(err) = spawned {
+            self.toast(&format!("No se pudo preparar la vista: {err}"));
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let Ok(comparison) = receiver.recv().await else {
+                return;
+            };
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if this.rows_generation.get() != generation {
+                return;
+            }
+            let len = comparison.rows.len();
+            // El préstamo termina antes de avisar a los modelos: la vista vuelve a leer
+            // las filas durante `items_changed`.
+            let old = this.comparison.replace(comparison);
+            for model in [&this.left_model, &this.right_model] {
+                model.splice(0, model.len(), len, len);
+            }
+            this.left.show_list();
+            this.right.show_list();
+            // Los documentos anteriores se liberan aquí, después de actualizar la vista.
+            drop(old);
+        });
+    }
+
+    /// Expande o colapsa la fila `position` en ambos paneles.
+    fn toggle(&self, position: u32) {
+        let (splice, len) = {
+            let mut comparison = self.comparison.borrow_mut();
+            let Comparison { left, right, rows } = &mut *comparison;
+            let splice = rows.toggle(position as usize, left.as_deref(), right.as_deref());
+            (splice, rows.len())
+        };
+        if let Some(s) = splice {
+            for model in [&self.left_model, &self.right_model] {
+                model.splice(s.position, s.removed, s.added, len);
+            }
+        }
     }
 
     /// Carga un documento en un panel (en segundo plano).

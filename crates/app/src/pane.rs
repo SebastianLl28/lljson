@@ -1,14 +1,18 @@
 //! Panel de un documento: barra con su nombre y acciones, y una pila con sus estados
-//! (vacío, cargando, cargado, error). La carga ocurre en un hilo de fondo (ver `loader`).
+//! (vacío, cargando, lista de filas, error). La carga ocurre en un hilo de fondo (ver
+//! `loader`); la lista virtualizada la comparten ambos paneles (ver `view`).
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::glib;
+use jsonlens_core::Document;
 
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
+use crate::view::RowsModel;
 
 /// Si una carga tarda más que esto, se muestra el indicador de progreso.
 const PROGRESS_DELAY: Duration = Duration::from_millis(150);
@@ -39,8 +43,9 @@ impl Side {
 pub struct Pane {
     pub root: gtk::Box,
     title: gtk::Label,
+    stats: gtk::Label,
     stack: gtk::Stack,
-    info: adw::StatusPage,
+    pub list: gtk::ListView,
     error: adw::StatusPage,
     loading_label: gtk::Label,
     document: RefCell<Option<Loaded>>,
@@ -52,7 +57,7 @@ pub struct Pane {
 }
 
 impl Pane {
-    pub fn new(side: Side) -> Rc<Pane> {
+    pub fn new(side: Side, model: &RowsModel, factory: gtk::SignalListItemFactory) -> Rc<Pane> {
         let open_action = format!("win.open-{}", side.name());
         let paste_action = format!("win.paste-{}", side.name());
         let shift = if side == Side::Right { "Mayús+" } else { "" };
@@ -63,6 +68,9 @@ impl Pane {
             .xalign(0.0)
             .ellipsize(gtk::pango::EllipsizeMode::Middle)
             .css_classes(["heading"])
+            .build();
+        let stats = gtk::Label::builder()
+            .css_classes(["dim-label", "caption"])
             .build();
         let open = gtk::Button::builder()
             .icon_name("document-open-symbolic")
@@ -80,12 +88,19 @@ impl Pane {
             .css_classes(["toolbar"])
             .build();
         bar.append(&title);
+        bar.append(&stats);
         bar.append(&open);
         bar.append(&paste);
 
-        // Provisional hasta la Fase 6 (vista virtualizada): resumen del documento cargado.
-        let info = adw::StatusPage::builder()
-            .icon_name("emblem-ok-symbolic")
+        let list = gtk::ListView::builder()
+            .model(&gtk::NoSelection::new(Some(model.clone())))
+            .factory(&factory)
+            .css_classes(["json-view", "monospace"])
+            .build();
+        let scrolled = gtk::ScrolledWindow::builder()
+            .child(&list)
+            .vexpand(true)
+            .hexpand(true)
             .build();
         let error = adw::StatusPage::builder()
             .icon_name("dialog-error-symbolic")
@@ -117,7 +132,7 @@ impl Pane {
             .build();
         stack.add_named(&empty_page(&open_action, &paste_action), Some("empty"));
         stack.add_named(&loading, Some("loading"));
-        stack.add_named(&info, Some("loaded"));
+        stack.add_named(&scrolled, Some("list"));
         stack.add_named(&error, Some("error"));
 
         let root = gtk::Box::builder()
@@ -131,8 +146,9 @@ impl Pane {
         Rc::new(Pane {
             root,
             title,
+            stats,
             stack,
-            info,
+            list,
             error,
             loading_label,
             document: RefCell::new(None),
@@ -145,6 +161,22 @@ impl Pane {
     /// Nombre del documento mostrado en la barra del panel.
     pub fn title(&self) -> String {
         self.title.label().into()
+    }
+
+    /// Documento cargado en este panel.
+    pub fn document(&self) -> Option<Arc<Document>> {
+        self.document
+            .borrow()
+            .as_ref()
+            .map(|loaded| Arc::clone(&loaded.document))
+    }
+
+    /// Muestra la lista de filas si el panel tiene un documento. La ventana lo llama
+    /// cuando las filas de los documentos actuales están construidas.
+    pub fn show_list(&self) {
+        if self.document.borrow().is_some() {
+            self.stack.set_visible_child_name("list");
+        }
     }
 
     pub fn connect_changed(&self, f: impl Fn() + 'static) {
@@ -192,17 +224,20 @@ impl Pane {
         self.loading.set(false);
         match result {
             Ok(loaded) => {
+                // La lista se muestra cuando la ventana termine de construir las filas.
                 self.title.set_label(&loaded.name);
-                self.info.set_title(&format!(
-                    "{} nodos",
-                    group_digits(loaded.document.node_count())
+                self.title.set_tooltip_text(Some(&describe(&loaded)));
+                self.stats.set_label(&format!(
+                    "{} nodos · {}",
+                    group_digits(loaded.document.node_count()),
+                    format_bytes(loaded.document.source_bytes().len())
                 ));
-                self.info.set_description(Some(&describe(&loaded)));
-                self.stack.set_visible_child_name("loaded");
                 self.document.replace(Some(loaded));
             }
             Err(err) => {
                 self.title.set_label(err.name());
+                self.title.set_tooltip_text(None);
+                self.stats.set_label("");
                 self.error
                     .set_title(&format!("No se pudo cargar {}", err.name()));
                 self.error.set_description(Some(&err.to_string()));
@@ -217,12 +252,7 @@ impl Pane {
 }
 
 fn describe(loaded: &Loaded) -> String {
-    let bytes = loaded.document.source_bytes().len();
-    let mut text = format!(
-        "{} · leído y analizado en {} ms",
-        format_bytes(bytes),
-        loaded.elapsed.as_millis()
-    );
+    let mut text = format!("Leído y analizado en {} ms", loaded.elapsed.as_millis());
     if loaded.fixes > 0 {
         text.push_str(&format!(
             "\nJSONC: {} comentarios o comas finales aceptados",

@@ -47,7 +47,7 @@ No se avanza de fase sin confirmación.
 - [x] Parseo en hilo de fondo con indicador de progreso (> ~150 ms).
 
 ## Fase 6 — App: vista virtualizada
-- [ ] Lista plana de filas + `GListModel` propio + `GtkListView`.
+- [x] Lista plana de filas + `GListModel` propio + `GtkListView`.
 - [ ] Colores de sintaxis.
 - [ ] Expandir/colapsar (modificando solo la lista plana).
 - [ ] Scroll sincronizado y filas alineadas entre paneles.

@@ -4,6 +4,7 @@
 use std::fmt;
 use std::io::{self, Read};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use jsonlens_core::{Document, Mode, ParseError, ParseOptions, Source, parse};
@@ -38,7 +39,8 @@ impl Input {
 #[derive(Debug)]
 pub struct Loaded {
     pub name: String,
-    pub document: Document,
+    /// Compartido con el hilo que construye las filas de la vista.
+    pub document: Arc<Document>,
     /// Comentarios y comas finales aceptados en modo tolerante.
     pub fixes: usize,
     /// Tiempo de lectura más parseo.
@@ -114,7 +116,7 @@ pub fn load(input: Input) -> LoadResult {
     Ok(Loaded {
         name,
         fixes: parsed.fixes.len(),
-        document: parsed.document,
+        document: Arc::new(parsed.document),
         elapsed: start.elapsed(),
     })
 }
