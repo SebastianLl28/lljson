@@ -23,7 +23,7 @@ No se avanza de fase sin confirmación.
 - [x] Hash por subárbol (xxh3) durante el parseo, independiente del orden de claves.
 - [x] Formatear (indentación configurable).
 - [x] Minificar.
-- [ ] Ordenar claves.
+- [x] Ordenar claves.
 - [ ] Tests.
 
 ## Fase 3 — Motor de diff

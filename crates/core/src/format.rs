@@ -22,6 +22,9 @@ impl Default for Indent {
 #[derive(Clone, Debug, Default)]
 pub struct FormatOptions {
     pub indent: Indent,
+    /// Ordena las claves de cada objeto (por punto de código, sobre la clave decodificada).
+    /// El orden entre claves duplicadas se conserva.
+    pub sort_keys: bool,
 }
 
 /// Formatea el documento completo.
@@ -35,6 +38,7 @@ pub fn minify(doc: &Document) -> String {
         doc,
         &FormatOptions {
             indent: Indent::None,
+            ..FormatOptions::default()
         },
     )
 }
@@ -52,6 +56,7 @@ pub fn format_node(doc: &Document, id: NodeId, options: &FormatOptions) -> Strin
         doc,
         unit,
         compact,
+        sort_keys: options.sort_keys,
         out: String::with_capacity(estimate + estimate / 2),
         stack: Vec::new(),
     };
@@ -59,9 +64,28 @@ pub fn format_node(doc: &Document, id: NodeId, options: &FormatOptions) -> Strin
     formatter.out
 }
 
+/// Siguiente hijo a escribir: en el orden del documento o ya ordenados por clave.
+enum Cursor {
+    Linked(Option<NodeId>),
+    Sorted(std::vec::IntoIter<NodeId>),
+}
+
+impl Cursor {
+    fn next(&mut self, doc: &Document) -> Option<NodeId> {
+        match self {
+            Cursor::Linked(next) => {
+                let current = (*next)?;
+                *next = doc.node(current).and_then(Node::next_sibling);
+                Some(current)
+            }
+            Cursor::Sorted(children) => children.next(),
+        }
+    }
+}
+
 /// Contenedor abierto mientras se escriben sus hijos.
 struct Frame {
-    next: Option<NodeId>,
+    cursor: Cursor,
     /// Profundidad de los hijos.
     depth: usize,
     object: bool,
@@ -72,6 +96,7 @@ struct Formatter<'a> {
     doc: &'a Document,
     unit: String,
     compact: bool,
+    sort_keys: bool,
     out: String,
     stack: Vec<Frame>,
 }
@@ -81,14 +106,13 @@ impl Formatter<'_> {
         self.value(id, 0);
         while let Some(frame) = self.stack.last_mut() {
             let depth = frame.depth;
-            let Some(child) = frame.next else {
+            let Some(child) = frame.cursor.next(self.doc) else {
                 let close = if frame.object { '}' } else { ']' };
                 self.stack.pop();
                 self.newline(depth.saturating_sub(1));
                 self.out.push(close);
                 continue;
             };
-            frame.next = self.doc.node(child).and_then(Node::next_sibling);
             let first = std::mem::replace(&mut frame.first, false);
             if !first {
                 self.out.push(',');
@@ -123,8 +147,15 @@ impl Formatter<'_> {
                     None => self.out.push_str(if object { "{}" } else { "[]" }),
                     Some(first) => {
                         self.out.push(if object { '{' } else { '[' });
+                        let cursor = if object && self.sort_keys {
+                            let mut children: Vec<_> = self.doc.children(id).collect();
+                            children.sort_by_cached_key(|&c| self.doc.key(c));
+                            Cursor::Sorted(children.into_iter())
+                        } else {
+                            Cursor::Linked(Some(first))
+                        };
                         self.stack.push(Frame {
-                            next: Some(first),
+                            cursor,
                             depth: depth + 1,
                             object,
                             first: true,
@@ -185,10 +216,12 @@ mod tests {
         let d = doc(r#"{"a":[1]}"#);
         let four = FormatOptions {
             indent: Indent::Spaces(4),
+            ..FormatOptions::default()
         };
         assert_eq!(format(&d, &four), "{\n    \"a\": [\n        1\n    ]\n}");
         let tab = FormatOptions {
             indent: Indent::Tab,
+            ..FormatOptions::default()
         };
         assert_eq!(format(&d, &tab), "{\n\t\"a\": [\n\t\t1\n\t]\n}");
     }
@@ -203,6 +236,49 @@ mod tests {
     #[test]
     fn drops_comments_and_trailing_commas() {
         assert_eq!(pretty("[1, // uno\n 2, /* dos */]"), "[\n  1,\n  2\n]");
+    }
+
+    fn sorted(text: &str, indent: Indent) -> String {
+        let options = FormatOptions {
+            indent,
+            sort_keys: true,
+        };
+        format(&doc(text), &options)
+    }
+
+    #[test]
+    fn sorts_keys_at_every_level() {
+        let text = r#"{"b": {"z": 1, "a": [{"y": 2, "x": 3}]}, "a": null, "C": 0}"#;
+        let expected = r#"{"C":0,"a":null,"b":{"a":[{"x":3,"y":2}],"z":1}}"#;
+        assert_eq!(sorted(text, Indent::None), expected);
+        let pretty = sorted(r#"{"b":1,"a":2}"#, Indent::Spaces(2));
+        assert_eq!(pretty, "{\n  \"a\": 2,\n  \"b\": 1\n}");
+    }
+
+    #[test]
+    fn sorting_keeps_arrays_and_duplicates_in_order() {
+        let text = r#"{"k": [3, 1, 2], "d": 1, "d": 2, "a": 0}"#;
+        assert_eq!(
+            sorted(text, Indent::None),
+            r#"{"a":0,"d":1,"d":2,"k":[3,1,2]}"#
+        );
+    }
+
+    #[test]
+    fn sorting_uses_decoded_keys_but_keeps_original_text() {
+        let text = r#"{"b": 1, "\u0061": 2, "á": 3, "Z": 4}"#;
+        assert_eq!(
+            sorted(text, Indent::None),
+            r#"{"Z":4,"\u0061":2,"b":1,"á":3}"#
+        );
+    }
+
+    #[test]
+    fn sorted_output_has_the_same_hash() {
+        let text = r#"{"z": {"q": [1, {"b": 2, "a": 1}]}, "m": "x", "a": [true]}"#;
+        let original = doc(text);
+        let sorted = doc(&sorted(text, Indent::Tab));
+        assert_eq!(original.hash(original.root()), sorted.hash(sorted.root()));
     }
 
     #[test]
