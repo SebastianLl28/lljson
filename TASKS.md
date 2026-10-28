@@ -37,7 +37,7 @@ No se avanza de fase sin confirmación.
 ## Fase 4 — CLI y benchmarks
 - [x] CLI: `jsonlens-cli diff a.json b.json`, `format`, `minify`, soporte de stdin (`-`).
 - [x] Generador de JSON de prueba (1 millón de nodos, con variantes con pocos cambios).
-- [ ] Benchmarks con criterion (parseo, hash, diff, formateo, memoria).
+- [x] Benchmarks con criterion (parseo, hash, diff, formateo, memoria).
 - [ ] Reportar resultados contra las metas de rendimiento.
 
 ## Fase 5 — App: estructura

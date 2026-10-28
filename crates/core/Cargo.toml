@@ -28,3 +28,11 @@ harness = false
 [[bench]]
 name = "diff"
 harness = false
+
+[[bench]]
+name = "hash"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false

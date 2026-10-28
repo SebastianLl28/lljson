@@ -4,27 +4,17 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use jsonlens_core::{FormatOptions, Indent, ParseOptions, format, minify, parse};
-
-/// Array de registros con ~12 nodos cada uno, minificado y con claves desordenadas.
-fn generate(records: usize) -> String {
-    let mut out = String::from("[");
-    for i in 0..records {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str(&format!(
-            r#"{{"name":"usuario_{i}","id":{i},"tags":["beta","alpha"],"score":{}.5,"active":true,"email":"u{i}@example.com","address":{{"zip":null,"city":"Ciudad {}"}}}}"#,
-            i % 1000,
-            i % 97
-        ));
-    }
-    out.push(']');
-    out
-}
+use jsonlens_core::{
+    FormatOptions, GenerateOptions, Indent, ParseOptions, format, generate, minify, parse,
+};
 
 fn bench(c: &mut Criterion) {
-    let text = generate(84_000);
+    // Minificado: el formateo no se beneficia de reutilizar la indentación original.
+    let options = GenerateOptions {
+        indent: Indent::None,
+        ..GenerateOptions::default()
+    };
+    let text = generate(&options).expect("generar el documento");
     let doc = match parse(text.as_str(), &ParseOptions::default()) {
         Ok(parsed) => parsed.document,
         Err(e) => panic!("el JSON generado debería ser válido: {e}"),
