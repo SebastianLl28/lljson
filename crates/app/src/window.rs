@@ -181,7 +181,7 @@ impl Window {
     }
 
     /// Expande o colapsa la fila `position` en ambos paneles.
-    fn toggle(&self, position: u32) {
+    pub fn toggle(&self, position: u32) {
         let (splice, len) = {
             let mut comparison = self.comparison.borrow_mut();
             let Comparison { left, right, rows } = &mut *comparison;

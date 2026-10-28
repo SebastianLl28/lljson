@@ -50,7 +50,7 @@ fn main() -> glib::ExitCode {
         }
         window.window.present();
         #[cfg(debug_assertions)]
-        devtools::schedule_screenshot(&window.window);
+        devtools::schedule_screenshot(&window);
     });
     // GTK no debe interpretar los argumentos: ya los procesó `clap`.
     let program: Vec<String> = std::env::args().take(1).collect();
