@@ -1,13 +1,17 @@
 //! Panel de un documento: barra con su nombre y acciones, y una pila con sus estados
-//! (vacío, cargado, error). La carga ocurre en un hilo de fondo (ver `loader`).
+//! (vacío, cargando, cargado, error). La carga ocurre en un hilo de fondo (ver `loader`).
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
+use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::glib;
 
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
+
+/// Si una carga tarda más que esto, se muestra el indicador de progreso.
+const PROGRESS_DELAY: Duration = Duration::from_millis(150);
 
 /// Lado del panel. Da nombre a sus acciones (`win.open-left`, `win.paste-right`…).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,9 +42,11 @@ pub struct Pane {
     stack: gtk::Stack,
     info: adw::StatusPage,
     error: adw::StatusPage,
+    loading_label: gtk::Label,
     document: RefCell<Option<Loaded>>,
     /// Identifica la última carga pedida: los resultados de cargas anteriores se descartan.
     generation: Cell<u64>,
+    loading: Cell<bool>,
     /// Se llama cuando cambia el documento o su nombre.
     on_changed: RefCell<Option<Box<dyn Fn()>>>,
 }
@@ -85,12 +91,32 @@ impl Pane {
             .icon_name("dialog-error-symbolic")
             .css_classes(["error"])
             .build();
+        let loading_label = gtk::Label::builder()
+            .css_classes(["title-4"])
+            .ellipsize(gtk::pango::EllipsizeMode::Middle)
+            .build();
+        let loading = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(18)
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+        let spinner = adw::Spinner::builder()
+            .width_request(48)
+            .height_request(48)
+            .build();
+        loading.append(&spinner);
+        loading.append(&loading_label);
+
         let stack = gtk::Stack::builder()
             .vexpand(true)
             .hexpand(true)
             .transition_type(gtk::StackTransitionType::Crossfade)
             .build();
         stack.add_named(&empty_page(&open_action, &paste_action), Some("empty"));
+        stack.add_named(&loading, Some("loading"));
         stack.add_named(&info, Some("loaded"));
         stack.add_named(&error, Some("error"));
 
@@ -108,8 +134,10 @@ impl Pane {
             stack,
             info,
             error,
+            loading_label,
             document: RefCell::new(None),
             generation: Cell::new(0),
+            loading: Cell::new(false),
             on_changed: RefCell::new(None),
         })
     }
@@ -124,11 +152,27 @@ impl Pane {
     }
 
     /// Carga un documento en segundo plano. Una carga nueva invalida la anterior.
+    /// Mientras tanto se sigue mostrando el contenido actual; si la carga tarda más de
+    /// [`PROGRESS_DELAY`], se muestra el indicador de progreso.
     pub fn load(self: &Rc<Self>, input: Input) {
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
+        self.loading.set(true);
         let name = input.name();
         let receiver = loader::spawn_load(input);
+
+        let pane: Weak<Pane> = Rc::downgrade(self);
+        let label = format!("Cargando {name}…");
+        glib::timeout_add_local_once(PROGRESS_DELAY, move || {
+            if let Some(pane) = pane.upgrade()
+                && pane.loading.get()
+                && pane.generation.get() == generation
+            {
+                pane.loading_label.set_label(&label);
+                pane.stack.set_visible_child_name("loading");
+            }
+        });
+
         let pane: Weak<Pane> = Rc::downgrade(self);
         glib::MainContext::default().spawn_local(async move {
             let result = receiver.recv().await;
@@ -145,6 +189,7 @@ impl Pane {
     }
 
     fn finish(&self, result: LoadResult) {
+        self.loading.set(false);
         match result {
             Ok(loaded) => {
                 self.title.set_label(&loaded.name);

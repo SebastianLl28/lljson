@@ -44,7 +44,7 @@ No se avanza de fase sin confirmación.
 - [x] Ventana libadwaita con dos paneles lado a lado.
 - [x] Abrir archivos, pegar, arrastrar y soltar.
 - [x] Argumentos de terminal (`jsonlens a.json b.json`, `-` para stdin).
-- [ ] Parseo en hilo de fondo con indicador de progreso (> ~150 ms).
+- [x] Parseo en hilo de fondo con indicador de progreso (> ~150 ms).
 
 ## Fase 6 — App: vista virtualizada
 - [ ] Lista plana de filas + `GListModel` propio + `GtkListView`.
