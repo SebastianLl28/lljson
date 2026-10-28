@@ -24,7 +24,7 @@ No se avanza de fase sin confirmación.
 - [x] Formatear (indentación configurable).
 - [x] Minificar.
 - [x] Ordenar claves.
-- [ ] Tests.
+- [x] Tests.
 
 ## Fase 3 — Motor de diff
 - [ ] Diff semántico usando hashes para saltar subárboles iguales.

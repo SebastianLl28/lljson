@@ -19,3 +19,7 @@ simd-json.workspace = true
 [[bench]]
 name = "parse"
 harness = false
+
+[[bench]]
+name = "format"
+harness = false
