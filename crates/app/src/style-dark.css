@@ -1,0 +1,6 @@
+/* Colores de sintaxis (tema oscuro). */
+.json-key { color: #99c1f1; }
+.json-string { color: #dc8add; }
+.json-number { color: #ffa348; }
+.json-bool { color: #6fd3c7; }
+.json-null { color: #9a9996; }

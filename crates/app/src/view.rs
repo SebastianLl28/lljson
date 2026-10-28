@@ -9,7 +9,7 @@ use std::sync::Arc;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
-use jsonlens_core::{Cell, Document, Rows, cell_text};
+use jsonlens_core::{Cell, Document, Rows, TokenKind, cell_text};
 
 use crate::pane::Side;
 
@@ -17,6 +17,45 @@ use crate::pane::Side;
 const INDENT_PX: i32 = 16;
 /// A partir de esta profundidad la sangría deja de crecer.
 const MAX_INDENT_DEPTH: u16 = 200;
+
+const STYLE: &str = include_str!("style.css");
+const STYLE_DARK: &str = include_str!("style-dark.css");
+
+/// Carga los estilos de la vista y cambia la paleta de sintaxis con el tema del sistema.
+pub fn install_styles() {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    let base = gtk::CssProvider::new();
+    base.load_from_string(STYLE);
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &base,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+    let dark = gtk::CssProvider::new();
+    let manager = adw::StyleManager::default();
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &dark,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+    );
+    let apply = move |manager: &adw::StyleManager| {
+        dark.load_from_string(if manager.is_dark() { STYLE_DARK } else { "" });
+    };
+    apply(&manager);
+    manager.connect_dark_notify(apply);
+}
+
+fn token_class(kind: TokenKind) -> &'static str {
+    match kind {
+        TokenKind::Punctuation => "json-punct",
+        TokenKind::String => "json-string",
+        TokenKind::Number => "json-number",
+        TokenKind::Bool => "json-bool",
+        TokenKind::Null => "json-null",
+    }
+}
 
 /// Documentos que se muestran y sus filas alineadas (construidas para esos documentos).
 #[derive(Default)]
@@ -141,8 +180,10 @@ impl RowWidgets {
             .css_classes(["row-expander"])
             .build();
         let key = label();
+        key.add_css_class("json-key");
         let value = label();
         let comma = label();
+        comma.add_css_class("json-punct");
         let summary = label();
         summary.add_css_class("dim-label");
         summary.set_margin_start(12);
@@ -263,6 +304,9 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
         widgets.key.set_label(&format!("{key}: "));
     }
     widgets.value.set_label(&text.value);
+    widgets
+        .value
+        .set_css_classes(&[token_class(text.value_kind)]);
     if text.comma {
         widgets.comma.set_label(",");
     }

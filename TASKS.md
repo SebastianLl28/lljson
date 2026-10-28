@@ -48,7 +48,7 @@ No se avanza de fase sin confirmación.
 
 ## Fase 6 — App: vista virtualizada
 - [x] Lista plana de filas + `GListModel` propio + `GtkListView`.
-- [ ] Colores de sintaxis.
+- [x] Colores de sintaxis.
 - [ ] Expandir/colapsar (modificando solo la lista plana).
 - [ ] Scroll sincronizado y filas alineadas entre paneles.
 - [ ] Probar con el archivo de 1 millón de nodos (fluidez y memoria).

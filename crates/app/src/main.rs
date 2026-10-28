@@ -38,6 +38,7 @@ fn main() -> glib::ExitCode {
     }
     let inputs = Cell::new(Some((left, right)));
     app.connect_activate(move |app| {
+        view::install_styles();
         let window = window::Window::new(app);
         if let Some((left, right)) = inputs.take() {
             if let Some(input) = left {
