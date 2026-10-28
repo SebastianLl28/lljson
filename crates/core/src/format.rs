@@ -9,6 +9,8 @@ use crate::document::{Document, Kind, Node, NodeId};
 pub enum Indent {
     Spaces(u8),
     Tab,
+    /// Sin saltos de línea ni espacios (minificado).
+    None,
 }
 
 impl Default for Indent {
@@ -27,16 +29,29 @@ pub fn format(doc: &Document, options: &FormatOptions) -> String {
     format_node(doc, doc.root(), options)
 }
 
+/// Minifica el documento completo: sin espacios ni saltos de línea.
+pub fn minify(doc: &Document) -> String {
+    format(
+        doc,
+        &FormatOptions {
+            indent: Indent::None,
+        },
+    )
+}
+
 /// Formatea el subárbol de un nodo (sin su clave). Un id inválido produce `""`.
 pub fn format_node(doc: &Document, id: NodeId, options: &FormatOptions) -> String {
     let unit = match options.indent {
         Indent::Spaces(n) => " ".repeat(usize::from(n)),
         Indent::Tab => "\t".to_owned(),
+        Indent::None => String::new(),
     };
+    let compact = options.indent == Indent::None;
     let estimate = doc.node(id).map_or(0, |n| n.value_span().len());
     let mut formatter = Formatter {
         doc,
         unit,
+        compact,
         out: String::with_capacity(estimate + estimate / 2),
         stack: Vec::new(),
     };
@@ -56,6 +71,7 @@ struct Frame {
 struct Formatter<'a> {
     doc: &'a Document,
     unit: String,
+    compact: bool,
     out: String,
     stack: Vec<Frame>,
 }
@@ -81,7 +97,7 @@ impl Formatter<'_> {
             if let Some(key) = self.doc.node(child).and_then(Node::key_span) {
                 self.out.push('"');
                 self.out.push_str(self.doc.text(key));
-                self.out.push_str("\": ");
+                self.out.push_str(if self.compact { "\":" } else { "\": " });
             }
             self.value(child, depth);
         }
@@ -120,6 +136,9 @@ impl Formatter<'_> {
     }
 
     fn newline(&mut self, depth: usize) {
+        if self.compact {
+            return;
+        }
         self.out.push('\n');
         for _ in 0..depth {
             self.out.push_str(&self.unit);
@@ -184,6 +203,36 @@ mod tests {
     #[test]
     fn drops_comments_and_trailing_commas() {
         assert_eq!(pretty("[1, // uno\n 2, /* dos */]"), "[\n  1,\n  2\n]");
+    }
+
+    #[test]
+    fn minifies() {
+        let text =
+            "{\n  \"a\": [ 1, {\"b\": null} ],\n  \"c\": \"x y\", \"d\": {}, \"e\": [] // fin\n}";
+        assert_eq!(
+            minify(&doc(text)),
+            r#"{"a":[1,{"b":null}],"c":"x y","d":{},"e":[]}"#
+        );
+        assert_eq!(minify(&doc(" [ ] ")), "[]");
+        assert_eq!(minify(&doc(" 1.0e2 ")), "1.0e2");
+    }
+
+    #[test]
+    fn minified_output_reparses_to_the_same_value() {
+        let text = "{\"u\": [ {\"id\": 1, \"t\": [\"a\", \"b\"]}, {\"x\": null} ], \"s\": \"\\n\"}";
+        let original = doc(text);
+        let minified = doc(&minify(&original));
+        assert_eq!(
+            original.hash(original.root()),
+            minified.hash(minified.root())
+        );
+    }
+
+    #[test]
+    fn minifies_very_deep_documents() {
+        const DEPTH: usize = 200_000;
+        let text = format!("{}{}", r#"{"a":["#.repeat(DEPTH), "]}".repeat(DEPTH));
+        assert_eq!(minify(&doc(&text)), text);
     }
 
     #[test]

@@ -22,7 +22,7 @@ No se avanza de fase sin confirmación.
 ## Fase 2 — Hash y formateador
 - [x] Hash por subárbol (xxh3) durante el parseo, independiente del orden de claves.
 - [x] Formatear (indentación configurable).
-- [ ] Minificar.
+- [x] Minificar.
 - [ ] Ordenar claves.
 - [ ] Tests.
 
