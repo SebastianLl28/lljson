@@ -4,11 +4,11 @@ Marca cada tarea con `[x]` al completarla (build, test y clippy en verde + commi
 No se avanza de fase sin confirmación.
 
 ## Fase 0 — Preparación
-- [ ] Verificar/instalar dependencias del sistema: toolchain de Rust ≥ 1.92 (rustup),
+- [x] Verificar/instalar dependencias del sistema: toolchain de Rust ≥ 1.92 (rustup),
       gtk4 y libadwaita de desarrollo, pkgconf. Detectar la distribución y darme el comando.
-- [ ] Crear workspace de Cargo con los crates `core`, `cli` y `app` (edición 2024,
+- [x] Crear workspace de Cargo con los crates `core`, `cli` y `app` (edición 2024,
       `[workspace.dependencies]` con las versiones de SPEC.md, `.gitignore`, `Cargo.lock` versionado).
-- [ ] App "hola mundo" con libadwaita que abra una ventana (confirmar que todo compila).
+- [x] App "hola mundo" con libadwaita que abra una ventana (confirmar que todo compila).
 
 ## Fase 1 — Núcleo: parser y árbol
 - [ ] Estructura de árbol en arena (`Vec<Node>`, índices `u32`, strings como rangos).
