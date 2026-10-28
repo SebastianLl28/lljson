@@ -10,3 +10,4 @@ publish.workspace = true
 jsonlens-core.workspace = true
 gtk.workspace = true
 adw.workspace = true
+async-channel.workspace = true

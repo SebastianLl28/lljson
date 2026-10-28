@@ -1,6 +1,13 @@
-//! Panel de un documento: barra con su nombre y acciones, y una pila con sus estados.
+//! Panel de un documento: barra con su nombre y acciones, y una pila con sus estados
+//! (vacío, cargado, error). La carga ocurre en un hilo de fondo (ver `loader`).
+
+use std::cell::{Cell, RefCell};
+use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
+use gtk::glib;
+
+use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
 
 /// Lado del panel. Da nombre a sus acciones (`win.open-left`, `win.paste-right`…).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,17 +23,33 @@ impl Side {
             Side::Right => "right",
         }
     }
+
+    pub fn other(self) -> Side {
+        match self {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
+        }
+    }
 }
 
 pub struct Pane {
     pub root: gtk::Box,
     title: gtk::Label,
+    stack: gtk::Stack,
+    info: adw::StatusPage,
+    error: adw::StatusPage,
+    document: RefCell<Option<Loaded>>,
+    /// Identifica la última carga pedida: los resultados de cargas anteriores se descartan.
+    generation: Cell<u64>,
+    /// Se llama cuando cambia el documento o su nombre.
+    on_changed: RefCell<Option<Box<dyn Fn()>>>,
 }
 
 impl Pane {
-    pub fn new(side: Side) -> Pane {
+    pub fn new(side: Side) -> Rc<Pane> {
         let open_action = format!("win.open-{}", side.name());
         let paste_action = format!("win.paste-{}", side.name());
+        let shift = if side == Side::Right { "Mayús+" } else { "" };
 
         let title = gtk::Label::builder()
             .label("Sin documento")
@@ -37,12 +60,12 @@ impl Pane {
             .build();
         let open = gtk::Button::builder()
             .icon_name("document-open-symbolic")
-            .tooltip_text("Abrir archivo")
+            .tooltip_text(format!("Abrir archivo (Ctrl+{shift}O)"))
             .action_name(open_action.as_str())
             .build();
         let paste = gtk::Button::builder()
             .icon_name("edit-paste-symbolic")
-            .tooltip_text("Pegar del portapapeles")
+            .tooltip_text(format!("Pegar del portapapeles (Ctrl+{shift}V)"))
             .action_name(paste_action.as_str())
             .build();
         let bar = gtk::Box::builder()
@@ -54,12 +77,22 @@ impl Pane {
         bar.append(&open);
         bar.append(&paste);
 
+        // Provisional hasta la Fase 6 (vista virtualizada): resumen del documento cargado.
+        let info = adw::StatusPage::builder()
+            .icon_name("emblem-ok-symbolic")
+            .build();
+        let error = adw::StatusPage::builder()
+            .icon_name("dialog-error-symbolic")
+            .css_classes(["error"])
+            .build();
         let stack = gtk::Stack::builder()
             .vexpand(true)
             .hexpand(true)
             .transition_type(gtk::StackTransitionType::Crossfade)
             .build();
         stack.add_named(&empty_page(&open_action, &paste_action), Some("empty"));
+        stack.add_named(&info, Some("loaded"));
+        stack.add_named(&error, Some("error"));
 
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -69,13 +102,118 @@ impl Pane {
         root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         root.append(&stack);
 
-        Pane { root, title }
+        Rc::new(Pane {
+            root,
+            title,
+            stack,
+            info,
+            error,
+            document: RefCell::new(None),
+            generation: Cell::new(0),
+            on_changed: RefCell::new(None),
+        })
     }
 
     /// Nombre del documento mostrado en la barra del panel.
     pub fn title(&self) -> String {
         self.title.label().into()
     }
+
+    pub fn connect_changed(&self, f: impl Fn() + 'static) {
+        self.on_changed.replace(Some(Box::new(f)));
+    }
+
+    /// Carga un documento en segundo plano. Una carga nueva invalida la anterior.
+    pub fn load(self: &Rc<Self>, input: Input) {
+        let generation = self.generation.get() + 1;
+        self.generation.set(generation);
+        let name = input.name();
+        let receiver = loader::spawn_load(input);
+        let pane: Weak<Pane> = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let result = receiver.recv().await;
+            let Some(pane) = pane.upgrade() else {
+                return;
+            };
+            if pane.generation.get() != generation {
+                return;
+            }
+            // El canal solo se cierra sin resultado si el hilo de carga entró en pánico.
+            let result = result.unwrap_or_else(|_| Err(LoadError::Interrupted { name }));
+            pane.finish(result);
+        });
+    }
+
+    fn finish(&self, result: LoadResult) {
+        match result {
+            Ok(loaded) => {
+                self.title.set_label(&loaded.name);
+                self.info.set_title(&format!(
+                    "{} nodos",
+                    group_digits(loaded.document.node_count())
+                ));
+                self.info.set_description(Some(&describe(&loaded)));
+                self.stack.set_visible_child_name("loaded");
+                self.document.replace(Some(loaded));
+            }
+            Err(err) => {
+                self.title.set_label(err.name());
+                self.error
+                    .set_title(&format!("No se pudo cargar {}", err.name()));
+                self.error.set_description(Some(&err.to_string()));
+                self.stack.set_visible_child_name("error");
+                self.document.replace(None);
+            }
+        }
+        if let Some(f) = self.on_changed.borrow().as_ref() {
+            f();
+        }
+    }
+}
+
+fn describe(loaded: &Loaded) -> String {
+    let bytes = loaded.document.source_bytes().len();
+    let mut text = format!(
+        "{} · leído y analizado en {} ms",
+        format_bytes(bytes),
+        loaded.elapsed.as_millis()
+    );
+    if loaded.fixes > 0 {
+        text.push_str(&format!(
+            "\nJSONC: {} comentarios o comas finales aceptados",
+            loaded.fixes
+        ));
+    }
+    text
+}
+
+/// Tamaño legible con coma decimal: `512 B`, `3,4 KiB`, `20,7 MiB`.
+pub fn format_bytes(bytes: usize) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit]).replace('.', ",")
+    }
+}
+
+/// Separa los miles con espacios finos: `1 000 009`.
+pub fn group_digits(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 * 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push('\u{202F}');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn empty_page(open_action: &str, paste_action: &str) -> adw::StatusPage {
@@ -102,4 +240,32 @@ fn empty_page(open_action: &str, paste_action: &str) -> adw::StatusPage {
         .description("o ábrelo desde un archivo o pégalo del portapapeles")
         .child(&buttons)
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytes_are_human_readable() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024), "1,0 KiB");
+        assert_eq!(format_bytes(21_705_000), "20,7 MiB");
+        assert_eq!(format_bytes(usize::MAX), format_bytes(usize::MAX));
+    }
+
+    #[test]
+    fn digits_are_grouped() {
+        assert_eq!(group_digits(0), "0");
+        assert_eq!(group_digits(999), "999");
+        assert_eq!(group_digits(1000), "1\u{202F}000");
+        assert_eq!(group_digits(1_000_009), "1\u{202F}000\u{202F}009");
+    }
+
+    #[test]
+    fn sides() {
+        assert_eq!(Side::Left.other(), Side::Right);
+        assert_eq!(Side::Right.name(), "right");
+    }
 }
