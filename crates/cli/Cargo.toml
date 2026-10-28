@@ -8,3 +8,5 @@ publish.workspace = true
 
 [dependencies]
 jsonlens-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
