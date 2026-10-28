@@ -84,8 +84,8 @@ mod tests {
 
     #[test]
     fn unicode_escapes() {
-        assert_eq!(unescape(r"á中"), "á中");
-        assert_eq!(unescape(r"😀!"), "😀!");
+        assert_eq!(unescape(r"\u00e1\u4E2D"), "á中");
+        assert_eq!(unescape(r"\ud83d\ude00!"), "😀!");
     }
 
     #[test]
