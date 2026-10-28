@@ -11,7 +11,7 @@ No se avanza de fase sin confirmación.
 - [x] App "hola mundo" con libadwaita que abra una ventana (confirmar que todo compila).
 
 ## Fase 1 — Núcleo: parser y árbol
-- [ ] Estructura de árbol en arena (`Vec<Node>`, índices `u32`, strings como rangos).
+- [x] Estructura de árbol en arena (`Vec<Node>`, índices `u32`, strings como rangos).
 - [ ] Parser estricto.
 - [ ] Modo tolerante (comas finales, comentarios `//` y `/* */`) y opción "autocorregir".
 - [ ] Errores con línea y columna.
