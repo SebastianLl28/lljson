@@ -21,6 +21,8 @@ pub enum DiffStatus {
     Removed,
     /// Escalar con distinto valor.
     Modified,
+    /// Distinto tipo en cada lado (p. ej. `"1"` y `1`); marca el subárbol completo.
+    TypeChanged,
     /// Contenedor con alguna diferencia entre sus descendientes.
     Contains,
 }
@@ -30,6 +32,7 @@ pub enum ChangeKind {
     Added,
     Removed,
     Modified,
+    TypeChanged,
 }
 
 /// Una diferencia concreta, con el nodo implicado en cada documento.
@@ -295,7 +298,24 @@ impl Differ<'_> {
         if ln.hash() == rn.hash() {
             return;
         }
-        if ln.kind().is_container() && ln.kind() == rn.kind() {
+        if ln.kind() != rn.kind() {
+            fill_subtree(
+                &mut self.result.left_status,
+                self.left,
+                l,
+                DiffStatus::TypeChanged,
+            );
+            fill_subtree(
+                &mut self.result.right_status,
+                self.right,
+                r,
+                DiffStatus::TypeChanged,
+            );
+            self.record(ChangeKind::TypeChanged, Some(l), Some(r));
+            self.mark_contains(ln.parent(), rn.parent());
+            return;
+        }
+        if ln.kind().is_container() {
             let pairs = pair_children(self.left, l, self.right, r, self.options);
             let works = pairs
                 .into_iter()
@@ -524,6 +544,43 @@ mod tests {
                 change(ChangeKind::Removed, r#"{"id": 2}"#, ""),
             ]
         );
+    }
+
+    #[test]
+    fn type_changes_are_explicit() {
+        let found = changes(
+            r#"{"a": "1", "b": 1, "c": null, "d": [1], "e": true}"#,
+            r#"{"a": 1, "b": 1.0, "c": false, "d": {"0": 1}, "e": "true"}"#,
+        );
+        assert_eq!(
+            found,
+            vec![
+                change(ChangeKind::TypeChanged, "1", "1"),
+                change(ChangeKind::TypeChanged, "null", "false"),
+                change(ChangeKind::TypeChanged, "[1]", r#"{"0": 1}"#),
+                change(ChangeKind::TypeChanged, "true", "true"),
+            ]
+        );
+        // Mismo tipo y distinto valor sigue siendo una modificación.
+        assert_eq!(
+            changes("true", "false"),
+            vec![change(ChangeKind::Modified, "true", "false")]
+        );
+    }
+
+    #[test]
+    fn type_change_marks_whole_subtrees() {
+        let (left, right, result) = run(r#"{"x": [1, [2]]}"#, r#"{"x": {"y": 1}}"#);
+        let left_status: Vec<_> = (0..left.node_count())
+            .map(|i| result.left_status(NodeId::from_index(i)))
+            .collect();
+        use DiffStatus::*;
+        assert_eq!(
+            left_status,
+            vec![Contains, TypeChanged, TypeChanged, TypeChanged, TypeChanged]
+        );
+        assert_eq!(result.right_status(NodeId::from_index(2)), TypeChanged);
+        assert_eq!(result.right_status(right.root()), Contains);
     }
 
     #[test]
