@@ -24,3 +24,7 @@ harness = false
 [[bench]]
 name = "format"
 harness = false
+
+[[bench]]
+name = "diff"
+harness = false

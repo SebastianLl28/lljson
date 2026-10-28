@@ -32,7 +32,7 @@ No se avanza de fase sin confirmación.
 - [x] Detección de cambio de tipo.
 - [x] Ignorar rutas.
 - [x] Resultado del diff con resumen (añadidos/eliminados/modificados).
-- [ ] Tests.
+- [x] Tests.
 
 ## Fase 4 — CLI y benchmarks
 - [ ] CLI: `jsonlens-cli diff a.json b.json`, `format`, `minify`, soporte de stdin (`-`).
