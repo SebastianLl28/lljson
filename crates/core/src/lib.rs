@@ -1,4 +1,4 @@
-//! Núcleo de jsonlens: parser, árbol en arena, hash, formateador y diff.
+//! Núcleo de jsonlens: parser, árbol en arena, hash, formateador, diff y generador de pruebas.
 //! Sin dependencias de UI.
 
 mod decode;
@@ -6,6 +6,7 @@ mod diff;
 mod document;
 mod error;
 mod format;
+mod generate;
 mod hash;
 mod parser;
 mod path;
@@ -17,6 +18,9 @@ pub use diff::{
 pub use document::{Children, Document, Kind, Node, NodeId, Span};
 pub use error::{ErrorKind, ParseError};
 pub use format::{FormatOptions, Indent, format, format_node, minify};
+pub use generate::{
+    Changes, GenerateError, GenerateOptions, NODES_PER_RECORD, generate, record_count,
+};
 pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
 pub use path::{IgnoreRule, PatternError, PatternSegment};
 pub use source::Source;

@@ -147,3 +147,50 @@ fn diff_errors() {
         stderr(&bad_rule)
     );
 }
+
+#[test]
+fn generate_base_and_variant() {
+    let base = run(&["generate", "--nodes", "1201"], "");
+    assert!(base.status.success(), "{}", stderr(&base));
+    let base_path = temp_file("gen-base.json", &stdout(&base));
+    let variant = run(
+        &[
+            "generate",
+            "--nodes",
+            "1201",
+            "--compact",
+            "--modify",
+            "2",
+            "--type-change",
+            "1",
+            "--remove",
+            "1",
+            "--add",
+            "3",
+        ],
+        "",
+    );
+    assert!(variant.status.success(), "{}", stderr(&variant));
+    assert!(!stdout(&variant).trim_end().contains('\n'));
+
+    let output = run(&["diff", "-q", arg(&base_path), "-"], &stdout(&base));
+    assert_eq!(output.status.code(), Some(0));
+    let output = run(
+        &["diff", "--array-key", "id", arg(&base_path), "-"],
+        &stdout(&variant),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stdout(&output).ends_with("3 añadidos, 1 eliminado, 3 modificados (1 cambio de tipo)\n"),
+        "{}",
+        stdout(&output)
+    );
+    let _ = std::fs::remove_file(base_path);
+}
+
+#[test]
+fn generate_too_many_changes() {
+    let output = run(&["generate", "--nodes", "13", "--remove", "2"], "");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("2 cambios"), "{}", stderr(&output));
+}

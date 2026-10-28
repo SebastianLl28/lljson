@@ -1,4 +1,4 @@
-//! `jsonlens-cli`: diff semántico, formateo y minificado de JSON desde la terminal.
+//! `jsonlens-cli`: diff semántico, formateo, minificado y generación de JSON de prueba.
 //! Un archivo `-` se lee de la entrada estándar.
 
 use std::io::{self, BufWriter, Read, Write};
@@ -8,8 +8,9 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use jsonlens_core::{
-    Change, ChangeKind, DiffOptions, Document, FormatOptions, IgnoreRule, Indent, Mode, NodeId,
-    ParseOptions, Source, Summary, diff, format, format_node, parse,
+    Change, ChangeKind, Changes, DiffOptions, Document, FormatOptions, GenerateOptions, IgnoreRule,
+    Indent, Mode, NodeId, ParseOptions, Source, Summary, diff, format, format_node, generate,
+    parse,
 };
 
 /// Caracteres máximos de un valor en la salida del diff.
@@ -34,6 +35,10 @@ enum Command {
     Format(FormatArgs),
     /// Minifica un documento (sin espacios ni saltos de línea).
     Minify(MinifyArgs),
+    /// Genera un documento de prueba determinista (array de registros de 12 nodos).
+    /// Con la misma semilla, `--modify`/`--type-change`/`--remove`/`--add` producen una
+    /// variante con exactamente esos cambios (comparar con `--array-key id`).
+    Generate(GenerateArgs),
 }
 
 #[derive(Args)]
@@ -92,6 +97,30 @@ struct MinifyArgs {
     input: InputArgs,
 }
 
+#[derive(Args)]
+struct GenerateArgs {
+    /// Nodos aproximados del documento base (se redondea a registros completos).
+    #[arg(long, default_value_t = 1_000_000)]
+    nodes: usize,
+    #[arg(long, default_value_t = 1)]
+    seed: u64,
+    /// Registros con `name` modificado.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    modify: usize,
+    /// Registros con `active` cambiado de booleano a string.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    type_change: usize,
+    /// Registros eliminados.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    remove: usize,
+    /// Registros nuevos insertados.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    add: usize,
+    /// Sin espacios ni saltos de línea (por defecto, indentado con 2 espacios).
+    #[arg(long)]
+    compact: bool,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli.command) {
@@ -122,6 +151,25 @@ fn run(command: Command) -> Result<ExitCode> {
         Command::Minify(args) => {
             let doc = load(&args.file, &args.input)?;
             write_document(&mut out, &doc, Indent::None, args.sort_keys)?;
+            ExitCode::SUCCESS
+        }
+        Command::Generate(args) => {
+            let options = GenerateOptions {
+                nodes: args.nodes,
+                seed: args.seed,
+                indent: if args.compact {
+                    Indent::None
+                } else {
+                    Indent::default()
+                },
+                changes: Changes {
+                    modified: args.modify,
+                    type_changed: args.type_change,
+                    removed: args.remove,
+                    added: args.add,
+                },
+            };
+            writeln!(out, "{}", generate(&options)?)?;
             ExitCode::SUCCESS
         }
     };
