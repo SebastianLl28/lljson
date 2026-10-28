@@ -26,7 +26,9 @@ pub(crate) fn unescape(raw: &str) -> Cow<'_, str> {
             Some('n') => out.push('\n'),
             Some('r') => out.push('\r'),
             Some('t') => out.push('\t'),
-            Some('u') => out.push(unicode_escape(&mut chars).unwrap_or(char::REPLACEMENT_CHARACTER)),
+            Some('u') => {
+                out.push(unicode_escape(&mut chars).unwrap_or(char::REPLACEMENT_CHARACTER))
+            }
             Some(other) => {
                 out.push('\\');
                 out.push(other);
@@ -74,7 +76,10 @@ mod tests {
 
     #[test]
     fn simple_escapes() {
-        assert_eq!(unescape(r#"a\"b\\c\/d\b\f\n\r\t"#), "a\"b\\c/d\u{8}\u{c}\n\r\t");
+        assert_eq!(
+            unescape(r#"a\"b\\c\/d\b\f\n\r\t"#),
+            "a\"b\\c/d\u{8}\u{c}\n\r\t"
+        );
     }
 
     #[test]

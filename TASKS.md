@@ -12,7 +12,7 @@ No se avanza de fase sin confirmación.
 
 ## Fase 1 — Núcleo: parser y árbol
 - [x] Estructura de árbol en arena (`Vec<Node>`, índices `u32`, strings como rangos).
-- [ ] Parser estricto.
+- [x] Parser estricto.
 - [ ] Modo tolerante (comas finales, comentarios `//` y `/* */`) y opción "autocorregir".
 - [ ] Errores con línea y columna.
 - [ ] Elegir estrategia de parseo (serde_json / simd-json / propio) con benchmark preliminar.

@@ -3,9 +3,13 @@
 
 mod decode;
 mod document;
+mod error;
+mod parser;
 mod source;
 
 pub use document::{Children, Document, Kind, Node, NodeId, Span};
+pub use error::{ErrorKind, ParseError};
+pub use parser::{Parsed, parse};
 pub use source::Source;
 
 /// Versión de la librería.

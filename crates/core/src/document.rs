@@ -36,7 +36,6 @@ pub struct Span {
     pub end: u32,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "temporal: lo usará el parser"))]
 impl Span {
     pub(crate) const EMPTY: Span = Span { start: 0, end: 0 };
 
@@ -149,7 +148,6 @@ pub struct Document {
 }
 
 impl Document {
-    #[cfg_attr(not(test), expect(dead_code, reason = "temporal: lo usará el parser"))]
     pub(crate) fn from_parts(source: Source, nodes: Vec<Node>, root: NodeId) -> Document {
         Document {
             source,
@@ -229,7 +227,11 @@ impl Document {
 
     fn decoded(&self, span: Span, escaped: bool) -> Cow<'_, str> {
         let raw = self.text(span);
-        if escaped { unescape(raw) } else { Cow::Borrowed(raw) }
+        if escaped {
+            unescape(raw)
+        } else {
+            Cow::Borrowed(raw)
+        }
     }
 }
 
