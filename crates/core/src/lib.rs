@@ -9,7 +9,7 @@ mod source;
 
 pub use document::{Children, Document, Kind, Node, NodeId, Span};
 pub use error::{ErrorKind, ParseError};
-pub use parser::{Parsed, parse};
+pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
 pub use source::Source;
 
 /// Versión de la librería.

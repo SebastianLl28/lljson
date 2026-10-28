@@ -10,18 +10,73 @@ use crate::source::Source;
 const MAX_SOURCE_LEN: usize = u32::MAX as usize;
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
+/// Modo de parseo.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// JSON estándar (RFC 8259).
+    #[default]
+    Strict,
+    /// Acepta además comentarios `//` y `/* */` y comas finales (JSONC).
+    Tolerant,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ParseOptions {
+    pub mode: Mode,
+}
+
+/// Construcción no estándar aceptada en modo tolerante.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FixKind {
+    LineComment,
+    BlockComment,
+    TrailingComma,
+}
+
+/// Fragmento del texto original que habría que quitar para obtener JSON estándar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fix {
+    pub kind: FixKind,
+    pub span: Span,
+}
+
 /// Resultado de un parseo correcto.
 #[derive(Debug)]
 pub struct Parsed {
     pub document: Document,
+    /// Construcciones no estándar encontradas (solo en modo tolerante).
+    pub fixes: Vec<Fix>,
 }
 
-/// Parsea un documento JSON estricto (RFC 8259).
-pub fn parse(source: impl Into<Source>) -> Result<Parsed, ParseError> {
+impl Parsed {
+    /// Texto original sin comentarios ni comas finales ("autocorregir").
+    /// `None` si el documento ya era JSON estándar.
+    pub fn autocorrected(&self) -> Option<String> {
+        if self.fixes.is_empty() {
+            return None;
+        }
+        let text = std::str::from_utf8(self.document.source_bytes()).ok()?;
+        let mut spans: Vec<Span> = self.fixes.iter().map(|f| f.span).collect();
+        spans.sort_by_key(|s| s.start);
+        let mut out = String::with_capacity(text.len());
+        let mut cursor = 0;
+        for span in spans {
+            out.push_str(text.get(cursor..span.start as usize)?);
+            cursor = span.end as usize;
+        }
+        out.push_str(text.get(cursor..)?);
+        Some(out)
+    }
+}
+
+/// Parsea un documento JSON.
+pub fn parse(source: impl Into<Source>, options: &ParseOptions) -> Result<Parsed, ParseError> {
     let source = source.into();
-    let (nodes, root) = Parser::new(source.as_bytes())?.run()?;
+    let tolerant = options.mode == Mode::Tolerant;
+    let (nodes, root, fixes) = Parser::new(source.as_bytes(), tolerant)?.run()?;
     Ok(Parsed {
         document: Document::from_parts(source, nodes, root),
+        fixes,
     })
 }
 
@@ -38,12 +93,14 @@ struct Frame {
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    tolerant: bool,
     nodes: Vec<Node>,
     stack: Vec<Frame>,
+    fixes: Vec<Fix>,
 }
 
 impl<'a> Parser<'a> {
-    fn new(bytes: &'a [u8]) -> Result<Parser<'a>, ParseError> {
+    fn new(bytes: &'a [u8], tolerant: bool) -> Result<Parser<'a>, ParseError> {
         if bytes.len() > MAX_SOURCE_LEN {
             return Err(ParseError::new(ErrorKind::TooLarge, 0));
         }
@@ -53,13 +110,15 @@ impl<'a> Parser<'a> {
         Ok(Parser {
             bytes,
             pos: if bytes.starts_with(BOM) { BOM.len() } else { 0 },
+            tolerant,
             // Estimación barata para evitar la mayoría de realocaciones.
             nodes: Vec::with_capacity(bytes.len() / 16),
             stack: Vec::new(),
+            fixes: Vec::new(),
         })
     }
 
-    fn run(mut self) -> Result<(Vec<Node>, NodeId), ParseError> {
+    fn run(mut self) -> Result<(Vec<Node>, NodeId, Vec<Fix>), ParseError> {
         self.skip_ws()?;
         self.value(Span::EMPTY, 0)?;
         while let Some(top) = self.stack.last() {
@@ -73,7 +132,15 @@ impl<'a> Parser<'a> {
                         self.pos += 1;
                         self.skip_ws()?;
                         if self.peek() == Some(close) {
-                            return Err(self.error(ErrorKind::TrailingComma, comma));
+                            if !self.tolerant {
+                                return Err(self.error(ErrorKind::TrailingComma, comma));
+                            }
+                            self.fixes.push(Fix {
+                                kind: FixKind::TrailingComma,
+                                span: Span::new(comma, comma + 1),
+                            });
+                            self.close_container();
+                            continue;
                         }
                     }
                     Some(c) if c == close => {
@@ -104,7 +171,7 @@ impl<'a> Parser<'a> {
         if self.pos < self.bytes.len() {
             return Err(self.error(ErrorKind::TrailingContent, self.pos));
         }
-        Ok((self.nodes, NodeId(0)))
+        Ok((self.nodes, NodeId(0), self.fixes))
     }
 
     fn peek(&self) -> Option<u8> {
@@ -141,11 +208,36 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b' ' | b'\n' | b'\r' | b'\t') => self.pos += 1,
                 Some(b'/') if matches!(self.bytes.get(self.pos + 1), Some(b'/' | b'*')) => {
-                    return Err(self.error(ErrorKind::CommentNotAllowed, self.pos));
+                    self.comment()?;
                 }
                 _ => return Ok(()),
             }
         }
+    }
+
+    /// Consume un comentario que empieza en la posición actual (solo modo tolerante).
+    fn comment(&mut self) -> Result<(), ParseError> {
+        let start = self.pos;
+        if !self.tolerant {
+            return Err(self.error(ErrorKind::CommentNotAllowed, start));
+        }
+        let body = self.bytes.get(start + 2..).unwrap_or_default();
+        let (kind, end) = if self.bytes.get(start + 1) == Some(&b'/') {
+            // El salto de línea no forma parte del comentario.
+            let len = body.iter().position(|&c| c == b'\n').unwrap_or(body.len());
+            (FixKind::LineComment, start + 2 + len)
+        } else {
+            let Some(len) = body.windows(2).position(|w| w == b"*/") else {
+                return Err(self.error(ErrorKind::UnterminatedComment, start));
+            };
+            (FixKind::BlockComment, start + 2 + len + 2)
+        };
+        self.fixes.push(Fix {
+            kind,
+            span: Span::new(start, end),
+        });
+        self.pos = end;
+        Ok(())
     }
 
     /// Lee `"clave" :` y deja la posición al inicio del valor.
@@ -381,15 +473,25 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
+    fn strict() -> ParseOptions {
+        ParseOptions::default()
+    }
+
+    fn tolerant() -> ParseOptions {
+        ParseOptions {
+            mode: Mode::Tolerant,
+        }
+    }
+
     fn doc(text: &str) -> Document {
-        match parse(text) {
+        match parse(text, &strict()) {
             Ok(parsed) => parsed.document,
             Err(e) => panic!("{text:?} debería parsear: {e}"),
         }
     }
 
     fn err(text: &str) -> ParseError {
-        match parse(text) {
+        match parse(text, &strict()) {
             Ok(_) => panic!("{text:?} debería fallar"),
             Err(e) => e,
         }
@@ -524,7 +626,7 @@ mod tests {
 
     #[test]
     fn invalid_utf8_reports_offset() {
-        let e = match parse(b"[\"a\xFF\"]".to_vec()) {
+        let e = match parse(b"[\"a\xFF\"]".to_vec(), &strict()) {
             Ok(_) => panic!("debería fallar"),
             Err(e) => e,
         };
@@ -535,5 +637,80 @@ mod tests {
     fn bom_is_skipped() {
         let d = doc("\u{feff}[1]");
         assert_eq!(d.children(d.root()).count(), 1);
+    }
+
+    fn lenient(text: &str) -> Parsed {
+        match parse(text, &tolerant()) {
+            Ok(parsed) => parsed,
+            Err(e) => panic!("{text:?} debería parsear en modo tolerante: {e}"),
+        }
+    }
+
+    #[test]
+    fn tolerant_accepts_jsonc() {
+        let text = "// cabecera\n{\n  \"a\": [1, 2,], /* nota */\n  \"b\": {\"c\": 3,},\n}\n";
+        let parsed = lenient(text);
+        let d = &parsed.document;
+        let members: Vec<_> = d.children(d.root()).collect();
+        assert_eq!(members.len(), 2);
+        assert_eq!(d.children(members[0]).count(), 2);
+        let kinds: Vec<_> = parsed.fixes.iter().map(|f| f.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                FixKind::LineComment,
+                FixKind::TrailingComma,
+                FixKind::BlockComment,
+                FixKind::TrailingComma,
+                FixKind::TrailingComma,
+            ]
+        );
+        assert_eq!(d.text(parsed.fixes[0].span), "// cabecera");
+        assert_eq!(d.text(parsed.fixes[2].span), "/* nota */");
+    }
+
+    #[test]
+    fn autocorrect_produces_strict_json() {
+        let text = "[1, /* x */ 2, // y\n 3,]";
+        let parsed = lenient(text);
+        let fixed = parsed.autocorrected();
+        assert_eq!(fixed.as_deref(), Some("[1,  2, \n 3]"));
+        let reparsed = parse(fixed.unwrap_or_default(), &strict());
+        assert!(reparsed.is_ok());
+    }
+
+    #[test]
+    fn autocorrect_is_none_for_standard_json() {
+        assert_eq!(lenient("[1, 2]").autocorrected(), None);
+        assert!(lenient("[1, 2]").fixes.is_empty());
+    }
+
+    #[test]
+    fn tolerant_still_rejects_real_errors() {
+        let e = |text: &str| match parse(text, &tolerant()) {
+            Ok(_) => panic!("{text:?} debería fallar"),
+            Err(e) => e.kind,
+        };
+        assert_eq!(
+            e("[1,,2]"),
+            ErrorKind::UnexpectedChar {
+                found: ',',
+                expected: "un valor"
+            }
+        );
+        assert_eq!(
+            e("[,]"),
+            ErrorKind::UnexpectedChar {
+                found: ',',
+                expected: "un valor"
+            }
+        );
+        assert_eq!(e("/* sin cerrar"), ErrorKind::UnterminatedComment);
+    }
+
+    #[test]
+    fn tolerant_accepts_comment_after_value() {
+        let parsed = lenient("[1] // fin");
+        assert_eq!(parsed.autocorrected().as_deref(), Some("[1] "));
     }
 }
