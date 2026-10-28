@@ -8,6 +8,7 @@ mod error;
 mod format;
 mod hash;
 mod parser;
+mod path;
 mod source;
 
 pub use diff::{Change, ChangeKind, DiffOptions, DiffResult, DiffStatus, diff, pair_children};
@@ -15,6 +16,7 @@ pub use document::{Children, Document, Kind, Node, NodeId, Span};
 pub use error::{ErrorKind, ParseError};
 pub use format::{FormatOptions, Indent, format, format_node, minify};
 pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
+pub use path::{IgnoreRule, PatternError, PatternSegment};
 pub use source::Source;
 
 /// Versión de la librería.

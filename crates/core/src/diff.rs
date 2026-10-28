@@ -7,6 +7,7 @@ use std::hash::Hash;
 use ahash::AHashMap;
 
 use crate::document::{Document, Kind, Node, NodeId};
+use crate::path::{IgnoreRule, PatternSegment};
 
 /// Estado de un nodo tras el diff.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -23,6 +24,8 @@ pub enum DiffStatus {
     Modified,
     /// Distinto tipo en cada lado (p. ej. `"1"` y `1`); marca el subárbol completo.
     TypeChanged,
+    /// Excluido de la comparación por una [`IgnoreRule`] (el subárbol completo).
+    Ignored,
     /// Contenedor con alguna diferencia entre sus descendientes.
     Contains,
 }
@@ -49,6 +52,8 @@ pub struct DiffOptions {
     /// arrays cuyos elementos, en ambos lados, son todos objetos con esa clave; el resto
     /// se compara por índice.
     pub array_key: Option<String>,
+    /// Claves y rutas que no se comparan.
+    pub ignore: Vec<IgnoreRule>,
 }
 
 /// Resultado del diff: estado de cada nodo, emparejamientos y lista de cambios.
@@ -119,6 +124,11 @@ pub fn diff(left: &Document, right: &Document, options: &DiffOptions) -> DiffRes
         options,
         result: DiffResult::new(left.node_count(), right.node_count()),
         stack: Vec::new(),
+        paths: Vec::new(),
+        track_paths: options
+            .ignore
+            .iter()
+            .any(|rule| matches!(rule, IgnoreRule::Path(_))),
     };
     differ.run();
     differ.result
@@ -259,6 +269,24 @@ fn merge(
 struct Work {
     left: Option<NodeId>,
     right: Option<NodeId>,
+    /// Entrada de `Differ::paths` del contenedor padre (`NO_PATH` para la raíz).
+    parent_path: u32,
+}
+
+const NO_PATH: u32 = u32::MAX;
+
+/// Contenedor recorrido, para reconstruir la ruta al evaluar reglas `$...`.
+/// Se guarda el nodo de un solo lado (el izquierdo si existe).
+struct PathEntry {
+    parent: u32,
+    side: Side,
+    node: NodeId,
+}
+
+#[derive(Clone, Copy)]
+enum Side {
+    Left,
+    Right,
 }
 
 struct Differ<'a> {
@@ -267,6 +295,9 @@ struct Differ<'a> {
     options: &'a DiffOptions,
     result: DiffResult,
     stack: Vec<Work>,
+    paths: Vec<PathEntry>,
+    /// Solo se registran rutas si hay reglas de tipo `$...`.
+    track_paths: bool,
 }
 
 impl Differ<'_> {
@@ -274,10 +305,30 @@ impl Differ<'_> {
         self.stack.push(Work {
             left: Some(self.left.root()),
             right: Some(self.right.root()),
+            parent_path: NO_PATH,
         });
         while let Some(work) = self.stack.pop() {
+            if self.is_ignored(&work) {
+                if let Some(l) = work.left {
+                    fill_subtree(
+                        &mut self.result.left_status,
+                        self.left,
+                        l,
+                        DiffStatus::Ignored,
+                    );
+                }
+                if let Some(r) = work.right {
+                    fill_subtree(
+                        &mut self.result.right_status,
+                        self.right,
+                        r,
+                        DiffStatus::Ignored,
+                    );
+                }
+                continue;
+            }
             match (work.left, work.right) {
-                (Some(l), Some(r)) => self.compare(l, r),
+                (Some(l), Some(r)) => self.compare(l, r, work.parent_path),
                 (Some(l), None) => self.removed(l),
                 (None, Some(r)) => self.added(r),
                 (None, None) => {}
@@ -285,7 +336,7 @@ impl Differ<'_> {
         }
     }
 
-    fn compare(&mut self, l: NodeId, r: NodeId) {
+    fn compare(&mut self, l: NodeId, r: NodeId, parent_path: u32) {
         if let Some(slot) = self.result.left_match.get_mut(l.index()) {
             *slot = r;
         }
@@ -316,11 +367,23 @@ impl Differ<'_> {
             return;
         }
         if ln.kind().is_container() {
+            let path = if self.track_paths {
+                let index = u32::try_from(self.paths.len()).unwrap_or(NO_PATH);
+                self.paths.push(PathEntry {
+                    parent: parent_path,
+                    side: Side::Left,
+                    node: l,
+                });
+                index
+            } else {
+                NO_PATH
+            };
             let pairs = pair_children(self.left, l, self.right, r, self.options);
-            let works = pairs
-                .into_iter()
-                .rev()
-                .map(|(left, right)| Work { left, right });
+            let works = pairs.into_iter().rev().map(|(left, right)| Work {
+                left,
+                right,
+                parent_path: path,
+            });
             self.stack.extend(works);
             return;
         }
@@ -354,6 +417,65 @@ impl Differ<'_> {
         let parent = self.right.node(r).and_then(Node::parent);
         let left_parent = parent.and_then(|p| self.result.right_match(p));
         self.mark_contains(left_parent, parent);
+    }
+
+    fn is_ignored(&self, work: &Work) -> bool {
+        if self.options.ignore.is_empty() {
+            return false;
+        }
+        let current = match (work.left, work.right) {
+            (Some(l), _) => (Side::Left, l),
+            (None, Some(r)) => (Side::Right, r),
+            (None, None) => return false,
+        };
+        let mut chain: Option<Vec<(Side, NodeId)>> = None;
+        self.options.ignore.iter().any(|rule| match rule {
+            IgnoreRule::Key(name) => self.key(current).as_deref() == Some(name.as_str()),
+            IgnoreRule::Path(pattern) => {
+                let chain = chain.get_or_insert_with(|| self.chain(current, work.parent_path));
+                pattern.len() == chain.len()
+                    && pattern
+                        .iter()
+                        .zip(chain.iter())
+                        .all(|(segment, &node)| self.segment_matches(segment, node))
+            }
+        })
+    }
+
+    /// Nodos desde el primer nivel bajo la raíz hasta `current` (la raíz no es un segmento).
+    fn chain(&self, current: (Side, NodeId), parent_path: u32) -> Vec<(Side, NodeId)> {
+        let mut chain = vec![current];
+        let mut next = parent_path;
+        while let Some(entry) = self.paths.get(next as usize) {
+            chain.push((entry.side, entry.node));
+            next = entry.parent;
+        }
+        chain.pop();
+        chain.reverse();
+        chain
+    }
+
+    fn segment_matches(&self, segment: &PatternSegment, (side, node): (Side, NodeId)) -> bool {
+        let key = self.key((side, node));
+        match segment {
+            PatternSegment::Key(name) => key.as_deref() == Some(name.as_str()),
+            PatternSegment::AnyKey => key.is_some(),
+            PatternSegment::AnyIndex => key.is_none(),
+            PatternSegment::Index(index) => {
+                key.is_none() && self.doc(side).child_position(node) == Some(*index)
+            }
+        }
+    }
+
+    fn doc(&self, side: Side) -> &Document {
+        match side {
+            Side::Left => self.left,
+            Side::Right => self.right,
+        }
+    }
+
+    fn key(&self, (side, node): (Side, NodeId)) -> Option<std::borrow::Cow<'_, str>> {
+        self.doc(side).key(node)
     }
 
     fn record(&mut self, kind: ChangeKind, left: Option<NodeId>, right: Option<NodeId>) {
@@ -478,6 +600,7 @@ mod tests {
     fn keyed() -> DiffOptions {
         DiffOptions {
             array_key: Some("id".to_owned()),
+            ..DiffOptions::default()
         }
     }
 
@@ -581,6 +704,90 @@ mod tests {
         );
         assert_eq!(result.right_status(NodeId::from_index(2)), TypeChanged);
         assert_eq!(result.right_status(right.root()), Contains);
+    }
+
+    fn ignoring(rules: &[&str], a: &str, b: &str) -> (Document, Document, DiffResult) {
+        let ignore = rules
+            .iter()
+            .map(|r| IgnoreRule::parse(r).unwrap_or_else(|e| panic!("{r}: {e}")))
+            .collect();
+        let options = DiffOptions {
+            ignore,
+            ..DiffOptions::default()
+        };
+        let (left, right) = (doc(a), doc(b));
+        let result = diff(&left, &right, &options);
+        (left, right, result)
+    }
+
+    fn changed_paths(result: &DiffResult, left: &Document, right: &Document) -> Vec<String> {
+        result
+            .changes()
+            .iter()
+            .map(|c| match (c.left, c.right) {
+                (Some(l), _) => left.path(l),
+                (None, Some(r)) => right.path(r),
+                (None, None) => String::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ignores_keys_at_any_depth() {
+        let a = r#"{"updatedAt": 1, "v": 1, "items": [{"updatedAt": 5, "n": 1}], "x": {"updatedAt": 0}}"#;
+        let b = r#"{"updatedAt": 2, "v": 1, "items": [{"updatedAt": 6, "n": 2}], "x": {}}"#;
+        let (left, right, result) = ignoring(&["updatedAt"], a, b);
+        assert_eq!(changed_paths(&result, &left, &right), vec!["$.items[0].n"]);
+        let updated = left.children(left.root()).next().unwrap_or(left.root());
+        assert_eq!(result.left_status(updated), DiffStatus::Ignored);
+        // Solo hay diferencias ignoradas en "x": no se marca como Contains.
+        let x = left.children(left.root()).nth(3).unwrap_or(left.root());
+        assert_eq!(result.left_status(x), DiffStatus::Equal);
+    }
+
+    #[test]
+    fn ignores_paths_with_wildcards() {
+        let a = r#"{"meta": {"ts": 1, "id": 1}, "users": [{"seen": 1, "n": "a"}, {"seen": 2, "n": "b"}], "seen": 1}"#;
+        let b = r#"{"meta": {"ts": 2, "id": 2}, "users": [{"seen": 9, "n": "a"}, {"seen": 8, "n": "B"}], "seen": 2}"#;
+        let (left, right, result) = ignoring(&["$.meta.ts", "$.users[*].seen"], a, b);
+        assert_eq!(
+            changed_paths(&result, &left, &right),
+            vec!["$.meta.id", "$.users[1].n", "$.seen"]
+        );
+        let (left, right, result) = ignoring(&["$.users[1]", "$.*.id"], a, b);
+        assert_eq!(
+            changed_paths(&result, &left, &right),
+            vec!["$.meta.ts", "$.users[0].seen", "$.seen"]
+        );
+    }
+
+    #[test]
+    fn ignored_additions_and_removals_are_not_changes() {
+        let (left, right, result) = ignoring(
+            &["debug", "$.tmp"],
+            r#"{"a": 1, "debug": {"x": 1}}"#,
+            r#"{"a": 1, "tmp": [1, 2]}"#,
+        );
+        assert!(result.is_equal());
+        assert_eq!(result.left_status(left.root()), DiffStatus::Equal);
+        let tmp = right.children(right.root()).nth(1).unwrap_or(right.root());
+        assert_eq!(result.right_status(tmp), DiffStatus::Ignored);
+        assert_eq!(
+            result.right_status(NodeId::from_index(right.node_count() - 1)),
+            DiffStatus::Ignored
+        );
+    }
+
+    #[test]
+    fn ignore_inside_keyed_arrays() {
+        let a = r#"[{"id": 1, "ts": 1}, {"id": 2, "ts": 1}]"#;
+        let b = r#"[{"id": 2, "ts": 5}, {"id": 1, "ts": 7}]"#;
+        let options = DiffOptions {
+            array_key: Some("id".to_owned()),
+            ignore: vec![IgnoreRule::Key("ts".to_owned())],
+        };
+        let result = diff(&doc(a), &doc(b), &options);
+        assert!(result.is_equal());
     }
 
     #[test]
