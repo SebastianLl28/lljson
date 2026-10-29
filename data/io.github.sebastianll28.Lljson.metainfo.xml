@@ -29,6 +29,21 @@
 
   <url type="homepage">https://github.com/SebastianLl28/lljson</url>
   <url type="bugtracker">https://github.com/SebastianLl28/lljson/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Comparing two JSON documents side by side, with added, removed and modified values highlighted</caption>
+      <image type="source">https://raw.githubusercontent.com/SebastianLl28/lljson/v0.1.0/docs/screenshots/compare-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The Viewer tab: editable JSON with line numbers and a tree with type icons</caption>
+      <image type="source">https://raw.githubusercontent.com/SebastianLl28/lljson/v0.1.0/docs/screenshots/viewer-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The comparison in the light theme</caption>
+      <image type="source">https://raw.githubusercontent.com/SebastianLl28/lljson/v0.1.0/docs/screenshots/compare-light.png</image>
+    </screenshot>
+  </screenshots>
+
   <launchable type="desktop-id">io.github.sebastianll28.Lljson.desktop</launchable>
   <provides>
     <binary>lljson</binary>
