@@ -9,6 +9,7 @@ mod options;
 mod pane;
 mod session;
 mod summary;
+mod theme;
 mod transform;
 mod view;
 mod window;

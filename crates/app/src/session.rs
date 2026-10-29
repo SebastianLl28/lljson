@@ -1,4 +1,4 @@
-//! What survives between runs: the color scheme and the last JSON loaded in each pane.
+//! What survives between runs: the theme and the last JSON loaded in each pane.
 //! Plain files under the user's config/data directories; independent of GTK widgets.
 
 use std::fs;
@@ -7,34 +7,10 @@ use std::path::{Path, PathBuf};
 
 use crate::loader::Input;
 use crate::pane::Side;
+use crate::theme;
 
 /// Larger documents are not restored: writing them would cost more than it helps.
 const MAX_SAVED_BYTES: usize = 32 * 1024 * 1024;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scheme {
-    System,
-    Light,
-    Dark,
-}
-
-impl Scheme {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Scheme::System => "system",
-            Scheme::Light => "light",
-            Scheme::Dark => "dark",
-        }
-    }
-
-    pub fn parse(text: &str) -> Scheme {
-        match text.trim() {
-            "light" => Scheme::Light,
-            "dark" => Scheme::Dark,
-            _ => Scheme::System,
-        }
-    }
-}
 
 fn config_dir() -> PathBuf {
     gtk::glib::user_config_dir().join("lljson")
@@ -44,12 +20,12 @@ fn data_dir() -> PathBuf {
     gtk::glib::user_data_dir().join("lljson")
 }
 
-pub fn load_scheme() -> Scheme {
-    read_scheme(&config_dir())
+pub fn load_theme() -> String {
+    read_theme(&config_dir())
 }
 
-pub fn save_scheme(scheme: Scheme) -> io::Result<()> {
-    write_scheme(&config_dir(), scheme)
+pub fn save_theme(id: &str) -> io::Result<()> {
+    write_theme(&config_dir(), id)
 }
 
 /// The document saved for `side`, ready to load again.
@@ -62,13 +38,16 @@ pub fn save_pane(side: Side, name: &str, bytes: &[u8]) -> io::Result<()> {
     write_pane(&data_dir(), side.name(), name, bytes)
 }
 
-fn read_scheme(dir: &Path) -> Scheme {
-    fs::read_to_string(dir.join("color-scheme")).map_or(Scheme::System, |t| Scheme::parse(&t))
+/// The saved theme id; unknown ids are resolved by `theme::by_id`.
+fn read_theme(dir: &Path) -> String {
+    fs::read_to_string(dir.join("theme"))
+        .map(|t| t.trim().to_owned())
+        .unwrap_or_else(|_| theme::DEFAULT_ID.to_owned())
 }
 
-fn write_scheme(dir: &Path, scheme: Scheme) -> io::Result<()> {
+fn write_theme(dir: &Path, id: &str) -> io::Result<()> {
     fs::create_dir_all(dir)?;
-    write_atomic(&dir.join("color-scheme"), scheme.as_str().as_bytes())
+    write_atomic(&dir.join("theme"), id.as_bytes())
 }
 
 fn read_pane(dir: &Path, side: &str) -> Option<Input> {
@@ -112,23 +91,19 @@ mod tests {
     }
 
     #[test]
-    fn scheme_round_trips() {
-        let dir = temp_dir("scheme");
-        for scheme in [Scheme::Light, Scheme::Dark, Scheme::System] {
-            write_scheme(&dir, scheme).unwrap();
-            assert_eq!(read_scheme(&dir), scheme);
-        }
+    fn theme_round_trips() {
+        let dir = temp_dir("theme");
+        write_theme(&dir, "synthwave").unwrap();
+        assert_eq!(read_theme(&dir), "synthwave");
+        write_theme(&dir, "dark").unwrap();
+        assert_eq!(read_theme(&dir), "dark");
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn missing_or_garbage_scheme_is_system() {
-        let dir = temp_dir("garbage");
-        assert_eq!(read_scheme(&dir), Scheme::System);
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("color-scheme"), "purple").unwrap();
-        assert_eq!(read_scheme(&dir), Scheme::System);
-        let _ = fs::remove_dir_all(&dir);
+    fn missing_theme_is_the_default() {
+        let dir = temp_dir("missing");
+        assert_eq!(read_theme(&dir), theme::DEFAULT_ID);
     }
 
     #[test]

@@ -13,8 +13,9 @@ use crate::loader::Input;
 use crate::nodecopy::{self, Copy};
 use crate::options::{self, OptionsText};
 use crate::pane::{Pane, Side};
-use crate::session::{self, Scheme};
+use crate::session;
 use crate::summary::{State, SummaryBar};
+use crate::theme::{self, THEMES};
 use crate::transform::Transform;
 use crate::view::{self, Comparison, RowsModel, to_u32};
 
@@ -121,11 +122,23 @@ impl Window {
             Some("Compare clipboard with file…"),
             Some("win.compare-clipboard"),
         );
-        let theme = gio::Menu::new();
-        for (label, value) in [("System", "system"), ("Light", "light"), ("Dark", "dark")] {
-            theme.append(Some(label), Some(&format!("win.color-scheme('{value}')")));
+        let themes = gio::Menu::new();
+        let stock = gio::Menu::new();
+        let palettes = gio::Menu::new();
+        for theme in THEMES {
+            let section = if theme.palette.is_some() {
+                &palettes
+            } else {
+                &stock
+            };
+            section.append(
+                Some(theme.label),
+                Some(&format!("win.theme('{}')", theme.id)),
+            );
         }
-        menu.append_submenu(Some("Theme"), &theme);
+        themes.append_section(None, &stock);
+        themes.append_section(None, &palettes);
+        menu.append_submenu(Some("Theme"), &themes);
         header.pack_end(
             &gtk::MenuButton::builder()
                 .icon_name("open-menu-symbolic")
@@ -220,7 +233,7 @@ impl Window {
         this.setup_hide_equal();
         this.setup_options();
         this.setup_compare_clipboard();
-        this.setup_color_scheme();
+        this.setup_theme();
         this.update_transform_actions();
         this.update_title();
         this.sync_scroll();
@@ -266,30 +279,23 @@ impl Window {
         self.window.add_action(&action);
     }
 
-    fn setup_color_scheme(self: &Rc<Self>) {
-        let apply = |scheme: Scheme| {
-            adw::StyleManager::default().set_color_scheme(match scheme {
-                Scheme::System => adw::ColorScheme::Default,
-                Scheme::Light => adw::ColorScheme::ForceLight,
-                Scheme::Dark => adw::ColorScheme::ForceDark,
-            });
-        };
-        let saved = session::load_scheme();
-        apply(saved);
+    fn setup_theme(self: &Rc<Self>) {
+        let saved = theme::by_id(&session::load_theme());
+        theme::apply(saved);
         let action = gio::SimpleAction::new_stateful(
-            "color-scheme",
+            "theme",
             Some(glib::VariantTy::STRING),
-            &saved.as_str().to_variant(),
+            &saved.id.to_variant(),
         );
         let weak = Rc::downgrade(self);
         action.connect_activate(move |action, param| {
             let Some(value) = param.and_then(|p| p.str()) else {
                 return;
             };
-            let scheme = Scheme::parse(value);
-            apply(scheme);
-            action.set_state(&scheme.as_str().to_variant());
-            if let Err(err) = session::save_scheme(scheme)
+            let chosen = theme::by_id(value);
+            theme::apply(chosen);
+            action.set_state(&chosen.id.to_variant());
+            if let Err(err) = session::save_theme(chosen.id)
                 && let Some(this) = weak.upgrade()
             {
                 this.toast(&format!("Could not save the theme: {err}"));
