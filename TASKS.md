@@ -101,7 +101,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Tolerant mode toggle with auto-fix.
 
 ## Phase 13 — Viewer tab: formatting
-- [ ] Auto-format on paste when the content is valid JSON.
+- [x] Auto-format on paste when the content is valid JSON.
 - [ ] Format, minify and sort-keys buttons and shortcuts (background thread for large input).
 
 ## Phase 14 — Viewer tab: tree viewer

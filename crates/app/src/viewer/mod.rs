@@ -22,6 +22,12 @@ use self::editor::Editor;
 use self::status::StatusBar;
 use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_autofix, spawn_validate};
 
+/// Whether a paste replaces the whole text: the buffer is empty or the selection spans it
+/// (offsets in characters).
+fn covers_all(total: i32, selection: Option<(i32, i32)>) -> bool {
+    total == 0 || selection.is_some_and(|(start, end)| start <= 0 && end >= total)
+}
+
 pub struct ViewerPage {
     root: adw::ToastOverlay,
     editor: Editor,
@@ -92,6 +98,7 @@ impl ViewerPage {
         });
         this.setup_drop();
         this.setup_validation();
+        this.setup_paste();
         this
     }
 
@@ -126,6 +133,57 @@ impl ViewerPage {
                 Err(err) => this.toast(&err.to_string()),
             }
         });
+    }
+
+    /// Pasting over the whole content (empty editor or everything selected) formats valid JSON
+    /// before it goes in. Any other paste, and pasted text that is not valid JSON, takes the
+    /// normal path so that it stays undoable and lands where the cursor is.
+    fn setup_paste(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        let bypass = Rc::new(Cell::new(false));
+        self.editor.view.connect_paste_clipboard(move |view| {
+            if bypass.get() {
+                return;
+            }
+            let buffer = view.buffer();
+            let selection = buffer
+                .selection_bounds()
+                .map(|(start, end)| (start.offset(), end.offset()));
+            if !covers_all(buffer.char_count(), selection) {
+                return;
+            }
+            view.stop_signal_emission_by_name("paste-clipboard");
+            let (view, weak, bypass) = (view.clone(), weak.clone(), Rc::clone(&bypass));
+            glib::MainContext::default().spawn_local(async move {
+                let text = match view.clipboard().read_text_future().await {
+                    Ok(Some(text)) => Some(text.to_string()),
+                    _ => None,
+                };
+                let formatted = match (text.clone(), weak.upgrade()) {
+                    (Some(text), Some(this)) => this.format_pasted(text).await,
+                    _ => None,
+                };
+                match (formatted, weak.upgrade()) {
+                    (Some(formatted), Some(this)) => this.replace_text(formatted),
+                    _ => {
+                        // Nothing to format: let GTK paste as usual.
+                        bypass.set(true);
+                        view.emit_by_name::<()>("paste-clipboard", &[]);
+                        bypass.set(false);
+                    }
+                }
+            });
+        });
+    }
+
+    /// The pretty-printed form of `text` if it is valid JSON that is not already formatted;
+    /// `None` also when a newer load made this paste stale.
+    async fn format_pasted(self: &Rc<Self>, text: String) -> Option<String> {
+        let id = self.generation.get() + 1;
+        self.generation.set(id);
+        let receiver = file::spawn_prepare(text.clone());
+        let formatted = receiver.recv().await.ok()?.ok()?;
+        (self.generation.get() == id && formatted != text).then_some(formatted)
     }
 
     /// Replaces the text; it is validated once all of it is in (inserting is done in slices).
@@ -317,5 +375,23 @@ impl ViewerPage {
 
     fn toast(&self, message: &str) {
         self.root.add_toast(adw::Toast::new(message));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::covers_all;
+
+    #[test]
+    fn paste_replaces_everything_when_empty_or_all_selected() {
+        assert!(covers_all(0, None));
+        assert!(covers_all(10, Some((0, 10))));
+    }
+
+    #[test]
+    fn partial_selection_or_cursor_is_a_normal_paste() {
+        assert!(!covers_all(10, None));
+        assert!(!covers_all(10, Some((1, 10))));
+        assert!(!covers_all(10, Some((0, 9))));
     }
 }
