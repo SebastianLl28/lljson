@@ -51,20 +51,7 @@ No se avanza de fase sin confirmación.
 - [x] Colores de sintaxis.
 - [x] Expandir/colapsar (modificando solo la lista plana).
 - [x] Scroll sincronizado y filas alineadas entre paneles.
-- [ ] Probar con el archivo de 1 millón de nodos (fluidez y memoria).
-
-> **Estado al pausar (2026-10-28) — tarea 5 en curso, sin marcar:**
-> - Hecho: feature `devtools` en `crates/app` (`JSONLENS_TRACE`, `JSONLENS_SCROLL_TEST`,
->   capturas); benchmark `crates/core/benches/rows.rs`; atajo en `pair_children` para
->   objetos con las mismas claves en el mismo orden (filas de 2 docs: 66 → 48 ms;
->   expandir la raíz: 82 → 54 ms; diff con inserción por índice: 84 → 56 ms).
-> - Medido (core, 1M nodos): 1 250 012 filas = 14,3 MiB; colapsar raíz 1,8 ms;
->   colapsar un registro 0,6 ms; **expandir la raíz 54 ms en el hilo de la UI** (> 16 ms).
-> - Falta: ejecutar en release
->   `JSONLENS_TRACE=1 JSONLENS_SCROLL_TEST=10 cargo run --release -p jsonlens --features devtools -- a.json b.json`
->   (fps, RSS, tiempo hasta el primer frame para la meta de arranque < 300 ms);
->   decidir con el usuario si expandir subárboles enormes pasa a un hilo de fondo;
->   anotar resultados en `BENCHMARKS.md` y marcar la tarea.
+- [x] Probar con el archivo de 1 millón de nodos (fluidez y memoria).
 
 ## Fase 7 — App: diff visual
 - [ ] Colores del diff por valor.

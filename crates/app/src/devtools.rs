@@ -175,6 +175,11 @@ fn scroll_test(app_window: &Rc<Window>, seconds: f64) {
             seed.set(next);
             adjustment.set_value((next >> 11) as f64 / (1u64 << 53) as f64 * max);
         } else {
+            eprintln!(
+                "altura final del contenido {:.0} px, ventana {:.0} px",
+                adjustment.upper(),
+                adjustment.page_size()
+            );
             report("scroll continuo", &smooth.borrow());
             report("saltos aleatorios", &jumps.borrow());
             report_memory();

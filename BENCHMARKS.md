@@ -21,8 +21,9 @@ Medido el **2026-10-28** (Fase 4).
 | Parseo (1M nodos) | < 1 s | **53 ms** (estricto), 57 ms (tolerante) | ✅ ~19× de margen |
 | Diff de dos archivos casi idénticos | < 500 ms | **8,2 ms** solo el diff; **72 ms** de punta a punta (leer + parsear ambos + diff) | ✅ ~7× de margen de punta a punta |
 | Memoria con ambos archivos cargados | < 500 MB | **158 MiB** de RSS (2 × 1M nodos + diff) | ✅ ~3× de margen |
-| Arranque de la app | < 300 ms | — | ⏳ se mide en la Fase 5 |
-| Scroll a 60 fps | fluido | — | ⏳ se mide en la Fase 6 |
+| Arranque de la app | < 300 ms | **~210 ms** hasta tener las 1 250 012 filas en la vista (primer frame a ~70–100 ms) | ✅ |
+| Scroll a 60 fps | fluido | **59–59,4 fps** de media, p99 ≤ 33 ms (monitor de 60 Hz) | ✅ |
+| Memoria de la app con ambos archivos | < 500 MB | **~240–270 MiB** de RSS | ✅ |
 
 ## Detalle (criterion, mediana)
 
@@ -90,3 +91,28 @@ la memoria de la UI (lista plana de filas y widgets visibles) en las fases 6 y 7
 
 Incluye el arranque del proceso, la lectura con mmap, el parseo (los dos documentos en
 paralelo en `diff`) y la escritura de la salida a `/dev/null`.
+
+## App GTK con 1 millón de nodos (Fase 6)
+
+Medido el **2026-10-28**, perfil `release` con la feature `devtools`, Wayland, monitor de 60 Hz,
+misma máquina que arriba. Archivos: `generate` (semilla 1) y `generate --modify 10 --type-change 5`,
+21,7 MB cada uno, 1 250 012 filas alineadas, altura de contenido 23,75 M px.
+
+```sh
+jsonlens-cli generate > a.json
+jsonlens-cli generate --modify 10 --type-change 5 > b.json
+JSONLENS_TRACE=1 JSONLENS_SCROLL_TEST=10 cargo run --release -p jsonlens --features devtools -- a.json b.json
+```
+
+| Métrica | Resultado (3 ejecuciones) |
+|---|---|
+| Primer frame | 71–101 ms |
+| Documentos cargados (cada uno, en paralelo) | 52–62 ms |
+| Filas listas en la vista | 208–224 ms desde el arranque |
+| Scroll continuo (5 s, 3000 px/s) | 58,4–59,4 fps; p50/p95 16,7 ms; 2–3 frames > 25 ms de ~295; máx 50–100 ms |
+| Saltos aleatorios (5 s) | 59,0–59,2 fps; p95 16,7 ms; p99 31–33 ms; 4–5 frames > 25 ms; máx 33 ms |
+| RSS al final | 242–273 MiB (VmHWM igual) |
+
+Los frames lentos aislados (≈1 %) quedan por investigar; el p95 está en el intervalo de
+refresco del monitor. Limitación conocida: **expandir la raíz tarda ~54 ms en el hilo de la UI**
+(`benches/rows.rs`), por encima de los 16 ms de un frame.
