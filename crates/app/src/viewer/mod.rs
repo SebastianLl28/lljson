@@ -136,6 +136,8 @@ impl ViewerPage {
     }
 
     fn cancel_validation(&self) {
+        // The mark would point at the wrong place once the text changes.
+        self.editor.clear_error();
         self.validating.advance();
         if let Some(timer) = self.debounce.take() {
             timer.remove();
@@ -163,6 +165,10 @@ impl ViewerPage {
                     && this.validating.is_current(id)
                 {
                     this.status.show(&result);
+                    match &result {
+                        Validation::Invalid { mark, .. } => this.editor.mark_error(mark),
+                        _ => this.editor.clear_error(),
+                    }
                     *this.validation.borrow_mut() = Some(result);
                 }
             });

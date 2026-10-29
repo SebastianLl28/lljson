@@ -97,7 +97,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 ## Phase 12 — Viewer tab: live validation
 - [x] Debounced background parse with generation counter.
 - [x] Status bar with valid / error `line:col`.
-- [ ] Error hints in `core` (with tests) and error mark in the editor.
+- [x] Error hints in `core` (with tests) and error mark in the editor.
 - [ ] Tolerant mode toggle with auto-fix.
 
 ## Phase 13 — Viewer tab: formatting

@@ -13,7 +13,45 @@ pub enum Validation {
     /// Nothing but whitespace: not an error, there is just nothing to validate.
     Empty,
     Valid,
-    Invalid(ParseError),
+    Invalid {
+        error: ParseError,
+        /// How to fix it, when `core` has advice for this kind of error.
+        hint: Option<String>,
+        mark: Mark,
+    },
+}
+
+/// Where to underline the error in the editor: a single character, located by its line
+/// (0-based) and its byte range within that line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub line: u32,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// The character to underline for an error at byte `offset`. An error past the end of the text
+/// or in whitespace points at the last visible character before it, since there is nothing
+/// to underline at the error itself.
+pub fn mark_for(text: &str, offset: usize) -> Mark {
+    let offset = text.floor_char_boundary(offset.min(text.len()));
+    let start = match text[offset..].chars().next() {
+        Some(c) if !c.is_whitespace() => offset,
+        _ => text[..offset]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| !c.is_whitespace())
+            .map_or(offset, |(i, _)| i),
+    };
+    let width = text[start..].chars().next().map_or(0, char::len_utf8);
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let line = text[..start].bytes().filter(|&b| b == b'\n').count();
+    let saturate = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    Mark {
+        line: saturate(line),
+        start: saturate(start - line_start),
+        end: saturate(start - line_start + width),
+    }
 }
 
 /// Parses `text` as strict JSON.
@@ -22,9 +60,13 @@ pub fn validate(text: String) -> Validation {
         return Validation::Empty;
     }
     let options = ParseOptions { mode: Mode::Strict };
-    match parse(Source::from(text), &options) {
+    match parse(Source::from(text.as_str()), &options) {
         Ok(_) => Validation::Valid,
-        Err(err) => Validation::Invalid(err),
+        Err(error) => Validation::Invalid {
+            hint: error.hint(text.as_bytes()),
+            mark: mark_for(&text, error.offset),
+            error,
+        },
     }
 }
 
@@ -87,7 +129,8 @@ mod tests {
 
     #[test]
     fn invalid_documents_report_line_and_column() {
-        let Validation::Invalid(err) = validate("{\n  \"a\": 1,\n  x\n}".to_owned()) else {
+        let Validation::Invalid { error: err, .. } = validate("{\n  \"a\": 1,\n  x\n}".to_owned())
+        else {
             panic!("expected an error");
         };
         assert_eq!((err.line, err.column), (3, 3));
@@ -96,7 +139,7 @@ mod tests {
 
     #[test]
     fn truncated_text_is_an_error_at_the_end() {
-        let Validation::Invalid(err) = validate("[1, 2".to_owned()) else {
+        let Validation::Invalid { error: err, .. } = validate("[1, 2".to_owned()) else {
             panic!("expected an error");
         };
         assert!(matches!(err.kind, ErrorKind::UnexpectedEnd { .. }));
@@ -105,7 +148,10 @@ mod tests {
     #[test]
     fn comments_and_trailing_commas_are_errors_in_strict_mode() {
         for text in ["[1, // one\n 2]", "{\"a\": 1,}"] {
-            assert!(matches!(validate(text.to_owned()), Validation::Invalid(_)));
+            assert!(matches!(
+                validate(text.to_owned()),
+                Validation::Invalid { .. }
+            ));
         }
     }
 
@@ -132,5 +178,103 @@ mod tests {
         let id = generation.advance();
         assert_eq!(id, 0);
         assert!(generation.is_current(id));
+    }
+
+    #[test]
+    fn invalid_documents_carry_a_hint() {
+        let Validation::Invalid { hint, .. } = validate("[1 2]".to_owned()) else {
+            panic!("expected an error");
+        };
+        assert_eq!(
+            hint.as_deref(),
+            Some("A comma `,` is missing before this value")
+        );
+    }
+
+    #[test]
+    fn mark_points_at_the_offending_character() {
+        let text = "{\n  \"a\": 1,\n  x\n}";
+        let offset = text.find('x').unwrap_or_default();
+        assert_eq!(
+            mark_for(text, offset),
+            Mark {
+                line: 2,
+                start: 2,
+                end: 3
+            }
+        );
+    }
+
+    #[test]
+    fn mark_at_the_end_falls_back_to_the_last_visible_character() {
+        assert_eq!(
+            mark_for("[1, 2", 5),
+            Mark {
+                line: 0,
+                start: 4,
+                end: 5
+            }
+        );
+        assert_eq!(
+            mark_for("[1,\n", 5),
+            Mark {
+                line: 0,
+                start: 2,
+                end: 3
+            }
+        );
+        assert_eq!(
+            mark_for("[\n  1,\n\n", 10),
+            Mark {
+                line: 1,
+                start: 3,
+                end: 4
+            }
+        );
+    }
+
+    #[test]
+    fn mark_handles_multibyte_characters_and_odd_offsets() {
+        assert_eq!(
+            mark_for("[\"ñ\", ñ]", 7),
+            Mark {
+                line: 0,
+                start: 7,
+                end: 9
+            }
+        );
+        // An offset inside a character snaps back to its start.
+        assert_eq!(
+            mark_for("ñ", 1),
+            Mark {
+                line: 0,
+                start: 0,
+                end: 2
+            }
+        );
+        assert_eq!(
+            mark_for("", 0),
+            Mark {
+                line: 0,
+                start: 0,
+                end: 0
+            }
+        );
+        assert_eq!(
+            mark_for("   ", 3),
+            Mark {
+                line: 0,
+                start: 3,
+                end: 3
+            }
+        );
+        assert_eq!(
+            mark_for("x", 99),
+            Mark {
+                line: 0,
+                start: 0,
+                end: 1
+            }
+        );
     }
 }

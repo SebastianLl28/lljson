@@ -7,6 +7,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib};
 
 use super::chunks::chunks;
+use super::validate::Mark;
 
 /// Between redrawing (`PRIORITY_REDRAW`) and the text view's background line layout (+5): frames
 /// are drawn between slices, but the slices do not wait behind the layout of the text so far.
@@ -20,7 +21,11 @@ pub struct Editor {
     pub(super) view: gtk::TextView,
     /// Id of the latest `set_text`; an insertion in progress stops when it is no longer current.
     load: Rc<Cell<u64>>,
+    /// An error mark is applied, so the next edit has to clear it.
+    marked: Cell<bool>,
 }
+
+const ERROR_TAG: &str = "syntax-error";
 
 impl Editor {
     pub fn new() -> Editor {
@@ -38,10 +43,50 @@ impl Editor {
             .hexpand(true)
             .vexpand(true)
             .build();
+        let tag = gtk::TextTag::builder()
+            .name(ERROR_TAG)
+            .underline(gtk::pango::Underline::Error)
+            .underline_rgba(&gdk::RGBA::new(0.88, 0.11, 0.14, 1.0))
+            .background_rgba(&gdk::RGBA::new(0.88, 0.11, 0.14, 0.25))
+            .build();
+        view.buffer().tag_table().add(&tag);
         Editor {
             root,
             view,
             load: Rc::new(Cell::new(0)),
+            marked: Cell::new(false),
+        }
+    }
+
+    /// Underlines the character of a validation error; replaces any previous mark.
+    pub fn mark_error(&self, mark: &Mark) {
+        self.clear_error();
+        let buffer = self.view.buffer();
+        let (Ok(line), Ok(start), Ok(end)) = (
+            i32::try_from(mark.line),
+            i32::try_from(mark.start),
+            i32::try_from(mark.end),
+        ) else {
+            return;
+        };
+        if line >= buffer.line_count() {
+            return;
+        }
+        let (Some(from), Some(to)) = (
+            buffer.iter_at_line_index(line, start),
+            buffer.iter_at_line_index(line, end),
+        ) else {
+            return;
+        };
+        buffer.apply_tag_by_name(ERROR_TAG, &from, &to);
+        self.marked.set(true);
+    }
+
+    /// Removes the error mark, if any (cheap when there is none).
+    pub fn clear_error(&self) {
+        if self.marked.replace(false) {
+            let buffer = self.view.buffer();
+            buffer.remove_tag_by_name(ERROR_TAG, &buffer.start_iter(), &buffer.end_iter());
         }
     }
 

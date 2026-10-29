@@ -45,7 +45,7 @@ fn validation_label(validation: &Validation) -> &'static str {
     match validation {
         Validation::Empty => "empty",
         Validation::Valid => "valid",
-        Validation::Invalid(_) => "invalid",
+        Validation::Invalid { .. } => "invalid",
     }
 }
 
