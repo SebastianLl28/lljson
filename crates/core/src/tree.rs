@@ -6,7 +6,7 @@
 use std::borrow::Cow;
 
 use crate::document::{Document, Kind, NodeId};
-use crate::rows::{Cell, RowKind, TokenKind, cell_text};
+use crate::rows::{Cell, RowKind, Splice, TokenKind, cell_text};
 
 /// A visible node (12 bytes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,29 +19,31 @@ pub struct TreeRow {
     pub depth: u16,
 }
 
+/// Visible rows of one document. Methods taking a document must always receive the one the
+/// list was built with.
 #[derive(Debug, Default)]
 pub struct TreeRows {
     rows: Vec<TreeRow>,
+    /// Per node: its children are hidden. Kept when an ancestor collapses, so that expanding
+    /// the ancestor again restores the state below it.
+    collapsed: Vec<bool>,
 }
 
 impl TreeRows {
     /// Every node of `doc` is visible.
     pub fn new(doc: &Document) -> TreeRows {
+        TreeRows::rebuilt(doc, vec![false; doc.node_count()])
+    }
+
+    fn rebuilt(doc: &Document, collapsed: Vec<bool>) -> TreeRows {
+        let root = TreeRow {
+            node: doc.root(),
+            index: 0,
+            depth: 0,
+        };
         let mut rows = Vec::with_capacity(doc.node_count());
-        let mut stack = vec![(doc.root(), 0u32, 0u16)];
-        while let Some((node, index, depth)) = stack.pop() {
-            rows.push(TreeRow { node, index, depth });
-            let child_depth = depth.saturating_add(1);
-            let first = stack.len();
-            stack.extend(
-                (0..)
-                    .zip(doc.children(node))
-                    .map(|(index, child)| (child, index, child_depth)),
-            );
-            // Popping takes the last element first: reverse to visit children in order.
-            stack[first..].reverse();
-        }
-        TreeRows { rows }
+        emit(doc, root, &collapsed, &mut rows);
+        TreeRows { rows, collapsed }
     }
 
     pub fn len(&self) -> usize {
@@ -54,6 +56,86 @@ impl TreeRows {
 
     pub fn get(&self, index: usize) -> Option<TreeRow> {
         self.rows.get(index).copied()
+    }
+
+    /// `Some(true)` if the row shows its children, `Some(false)` if they are hidden, `None`
+    /// if it has none (scalar or empty container).
+    pub fn is_expanded(&self, index: usize, doc: &Document) -> Option<bool> {
+        let node = self.rows.get(index)?.node;
+        has_children(doc, node).then(|| !self.collapsed.get(node.index()).copied().unwrap_or(false))
+    }
+
+    /// Expands or collapses the container at row `index` by splicing the list (the row itself
+    /// included); `None` if the row has no children.
+    pub fn toggle(&mut self, index: usize, doc: &Document) -> Option<Splice> {
+        let row = self.rows.get(index).copied()?;
+        let expanded = self.is_expanded(index, doc)?;
+        let flag = self.collapsed.get_mut(row.node.index())?;
+        *flag = expanded;
+        if expanded {
+            let end = doc.subtree_end(row.node);
+            let removed = self.rows[index + 1..]
+                .iter()
+                .take_while(|r| r.node.index() < end)
+                .count();
+            self.rows.drain(index + 1..=index + removed);
+            // The toggled row is part of the splice so that its marker is redrawn.
+            Some(Splice {
+                position: index,
+                removed: removed + 1,
+                added: 1,
+            })
+        } else {
+            let mut shown = Vec::new();
+            emit(doc, row, &self.collapsed, &mut shown);
+            let added = shown.len();
+            self.rows.splice(index..=index, shown);
+            Some(Splice {
+                position: index,
+                removed: 1,
+                added,
+            })
+        }
+    }
+
+    /// Shows every node. The whole list changes, so callers replace it entirely.
+    pub fn expand_all(&mut self, doc: &Document) {
+        *self = TreeRows::new(doc);
+    }
+
+    /// Hides everything below the root's children: the root stays expanded so that the first
+    /// level remains visible. The whole list changes, so callers replace it entirely.
+    pub fn collapse_all(&mut self, doc: &Document) {
+        let mut collapsed = vec![true; doc.node_count()];
+        if let Some(flag) = collapsed.get_mut(doc.root().index()) {
+            *flag = false;
+        }
+        *self = TreeRows::rebuilt(doc, collapsed);
+    }
+}
+
+fn has_children(doc: &Document, node: NodeId) -> bool {
+    doc.node(node)
+        .is_some_and(|n| n.kind().is_container() && n.child_count() > 0)
+}
+
+/// Appends `row` and, unless collapsed, everything below it in document order.
+fn emit(doc: &Document, row: TreeRow, collapsed: &[bool], out: &mut Vec<TreeRow>) {
+    let mut stack = vec![row];
+    while let Some(row) = stack.pop() {
+        out.push(row);
+        if collapsed.get(row.node.index()).copied().unwrap_or(false) {
+            continue;
+        }
+        let depth = row.depth.saturating_add(1);
+        let first = stack.len();
+        stack.extend(
+            (0..)
+                .zip(doc.children(row.node))
+                .map(|(index, node)| TreeRow { node, index, depth }),
+        );
+        // Popping takes the last element first: reverse to visit children in order.
+        stack[first..].reverse();
     }
 }
 
@@ -334,5 +416,171 @@ mod tests {
         let rows = TreeRows::new(&big);
         let t = tree_text(&small, rows.get(5).expect("row"));
         assert_eq!((t.value.as_ref(), t.length), ("", None));
+    }
+
+    /// Raw text and depth of each visible row.
+    fn lines(d: &Document, rows: &TreeRows) -> Vec<String> {
+        (0..rows.len())
+            .filter_map(|i| rows.get(i))
+            .map(|r| {
+                let text = tree_text(d, r);
+                let label = match text.label {
+                    TreeLabel::Root => String::new(),
+                    TreeLabel::Key(k) => format!("{k}: "),
+                    TreeLabel::Index(i) => format!("[{i}]: "),
+                };
+                format!("{}{label}{}", "  ".repeat(usize::from(r.depth)), text.value)
+            })
+            .collect()
+    }
+
+    const NESTED: &str = r#"{"a":{"b":[1,2],"c":3},"d":[],"e":4}"#;
+
+    #[test]
+    fn is_expanded_distinguishes_containers_from_leaves() {
+        let d = doc(NESTED);
+        let rows = TreeRows::new(&d);
+        // rows: root, a, b, [0], [1], c, d, e
+        assert_eq!(rows.is_expanded(0, &d), Some(true));
+        assert_eq!(rows.is_expanded(2, &d), Some(true));
+        assert_eq!(rows.is_expanded(3, &d), None, "scalar");
+        assert_eq!(rows.is_expanded(6, &d), None, "empty container");
+        assert_eq!(rows.is_expanded(99, &d), None, "no such row");
+    }
+
+    #[test]
+    fn collapsing_hides_the_subtree_and_reports_the_splice() {
+        let d = doc(NESTED);
+        let mut rows = TreeRows::new(&d);
+        let splice = rows.toggle(1, &d);
+        assert_eq!(
+            splice,
+            Some(Splice {
+                position: 1,
+                removed: 5,
+                added: 1
+            })
+        );
+        assert_eq!(lines(&d, &rows), ["{3}", "  a: {2}", "  d: [0]", "  e: 4"]);
+        assert_eq!(rows.is_expanded(1, &d), Some(false));
+    }
+
+    #[test]
+    fn expanding_restores_the_rows_and_the_state_below() {
+        let d = doc(NESTED);
+        let mut rows = TreeRows::new(&d);
+        let before = lines(&d, &rows);
+        rows.toggle(2, &d); // collapse b
+        rows.toggle(1, &d); // collapse a
+        let splice = rows.toggle(1, &d); // expand a: b stays collapsed
+        assert_eq!(
+            splice,
+            Some(Splice {
+                position: 1,
+                removed: 1,
+                added: 3
+            })
+        );
+        assert_eq!(
+            lines(&d, &rows),
+            [
+                "{3}",
+                "  a: {2}",
+                "    b: [2]",
+                "    c: 3",
+                "  d: [0]",
+                "  e: 4"
+            ]
+        );
+        rows.toggle(2, &d); // expand b
+        assert_eq!(lines(&d, &rows), before);
+    }
+
+    #[test]
+    fn toggling_a_row_without_children_does_nothing() {
+        let d = doc(NESTED);
+        let mut rows = TreeRows::new(&d);
+        let before = lines(&d, &rows);
+        assert_eq!(rows.toggle(3, &d), None);
+        assert_eq!(rows.toggle(6, &d), None);
+        assert_eq!(rows.toggle(99, &d), None);
+        assert_eq!(lines(&d, &rows), before);
+    }
+
+    #[test]
+    fn collapsing_the_root_leaves_one_row() {
+        let d = doc(NESTED);
+        let mut rows = TreeRows::new(&d);
+        rows.toggle(0, &d);
+        assert_eq!(lines(&d, &rows), ["{3}"]);
+        rows.toggle(0, &d);
+        assert_eq!(rows.len(), d.node_count());
+    }
+
+    #[test]
+    fn collapse_all_keeps_the_first_level_and_expand_all_shows_everything() {
+        let d = doc(NESTED);
+        let mut rows = TreeRows::new(&d);
+        rows.collapse_all(&d);
+        assert_eq!(lines(&d, &rows), ["{3}", "  a: {2}", "  d: [0]", "  e: 4"]);
+        rows.toggle(1, &d);
+        assert_eq!(
+            lines(&d, &rows),
+            [
+                "{3}",
+                "  a: {2}",
+                "    b: [2]",
+                "    c: 3",
+                "  d: [0]",
+                "  e: 4"
+            ]
+        );
+        rows.expand_all(&d);
+        assert_eq!(rows.len(), d.node_count());
+    }
+
+    #[test]
+    fn collapse_all_on_a_scalar_keeps_its_row() {
+        let d = doc("1");
+        let mut rows = TreeRows::new(&d);
+        rows.collapse_all(&d);
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn array_indices_survive_collapsing_and_expanding() {
+        let d = doc("[[1],[2],[3]]");
+        let mut rows = TreeRows::new(&d);
+        rows.toggle(1, &d);
+        rows.toggle(1, &d);
+        let indices: Vec<u32> = (0..rows.len())
+            .filter_map(|i| rows.get(i))
+            .map(|r| r.index)
+            .collect();
+        assert_eq!(indices, [0, 0, 0, 1, 0, 2, 0]);
+    }
+
+    #[test]
+    fn toggling_deeper_than_the_depth_limit_still_works() {
+        let levels = 70_000;
+        let d = doc(&format!("{}{}", "[".repeat(levels), "]".repeat(levels)));
+        let mut rows = TreeRows::new(&d);
+        let splice = rows.toggle(1, &d);
+        assert_eq!(splice.map(|s| s.removed), Some(levels - 1));
+        assert_eq!(rows.len(), 2);
+        rows.toggle(1, &d);
+        assert_eq!(rows.len(), levels);
+    }
+
+    #[test]
+    fn splices_match_the_row_list_changes() {
+        let d = doc(r#"{"a":[{"x":1},{"y":[1,2]}],"b":{"c":[true]}}"#);
+        let mut rows = TreeRows::new(&d);
+        for index in [1, 2, 0, 0, 1, 3, 1] {
+            let before = rows.len();
+            if let Some(s) = rows.toggle(index, &d) {
+                assert_eq!(before - s.removed + s.added, rows.len(), "row {index}");
+            }
+        }
     }
 }

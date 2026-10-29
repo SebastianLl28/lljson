@@ -107,7 +107,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 ## Phase 14 — Viewer tab: tree viewer
 - [x] Virtualized flat-row model from the parsed document.
 - [x] Type icons, container length and array indices.
-- [ ] Expand/collapse per node, expand all, collapse all.
+- [x] Expand/collapse per node, expand all, collapse all.
 
 ## Phase 15 — Viewer tab: utilities
 - [ ] Copy node path and value.
