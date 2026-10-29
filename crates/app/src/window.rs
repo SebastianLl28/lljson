@@ -21,9 +21,12 @@ use crate::summary::{State, SummaryBar};
 use crate::theme::{self, THEMES};
 use crate::transform::Transform;
 use crate::view::{self, Comparison, RowsModel, to_u32};
+use crate::viewer::ViewerPage;
 
 const DEFAULT_WIDTH: i32 = 1200;
 const DEFAULT_HEIGHT: i32 = 760;
+const PAGE_COMPARE: &str = "compare";
+const PAGE_VIEWER: &str = "viewer";
 
 pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.open-left", &["<Control>o"]),
@@ -42,7 +45,9 @@ pub const ACCELS: &[(&str, &[&str])] = &[
 
 pub struct Window {
     pub window: adw::ApplicationWindow,
-    title: adw::WindowTitle,
+    stack: adw::ViewStack,
+    /// Header widgets that only make sense for the comparison.
+    compare_header: Vec<gtk::Widget>,
     toasts: adw::ToastOverlay,
     summary: SummaryBar,
     left: Rc<Pane>,
@@ -125,8 +130,21 @@ impl Window {
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&paned));
 
-        let title = adw::WindowTitle::new("lljson", "");
-        let header = adw::HeaderBar::builder().title_widget(&title).build();
+        let viewer = ViewerPage::new();
+        let stack = adw::ViewStack::new();
+        stack.add_titled_with_icon(&toasts, Some(PAGE_COMPARE), "Compare", "view-dual-symbolic");
+        stack.add_titled_with_icon(
+            viewer.root(),
+            Some(PAGE_VIEWER),
+            "Viewer",
+            "text-x-generic-symbolic",
+        );
+        let switcher = adw::ViewSwitcher::builder()
+            .stack(&stack)
+            .policy(adw::ViewSwitcherPolicy::Wide)
+            .build();
+        let header = adw::HeaderBar::builder().title_widget(&switcher).build();
+        let mut compare_header: Vec<gtk::Widget> = Vec::new();
         let menu = gio::Menu::new();
         menu.append(
             Some("Compare clipboard with file…"),
@@ -153,20 +171,20 @@ impl Window {
                 .tooltip_text("Main menu")
                 .build(),
         );
-        header.pack_end(
-            &gtk::Button::builder()
-                .icon_name("preferences-system-symbolic")
-                .action_name("win.diff-options")
-                .tooltip_text("Comparison options (Ctrl+,)")
-                .build(),
-        );
-        header.pack_start(
-            &gtk::ToggleButton::builder()
-                .icon_name("view-conceal-symbolic")
-                .action_name("win.hide-equal")
-                .tooltip_text("Hide equal sections (Ctrl+H)")
-                .build(),
-        );
+        let options_button = gtk::Button::builder()
+            .icon_name("preferences-system-symbolic")
+            .action_name("win.diff-options")
+            .tooltip_text("Comparison options (Ctrl+,)")
+            .build();
+        header.pack_end(&options_button);
+        compare_header.push(options_button.upcast());
+        let hide_equal_button = gtk::ToggleButton::builder()
+            .icon_name("view-conceal-symbolic")
+            .action_name("win.hide-equal")
+            .tooltip_text("Hide equal sections (Ctrl+H)")
+            .build();
+        header.pack_start(&hide_equal_button);
+        compare_header.push(hide_equal_button.upcast());
         for (icon, action, tooltip) in [
             (
                 "go-up-symbolic",
@@ -179,18 +197,18 @@ impl Window {
                 "Next difference (F3)",
             ),
         ] {
-            header.pack_start(
-                &gtk::Button::builder()
-                    .icon_name(icon)
-                    .action_name(action)
-                    .tooltip_text(tooltip)
-                    .build(),
-            );
+            let button = gtk::Button::builder()
+                .icon_name(icon)
+                .action_name(action)
+                .tooltip_text(tooltip)
+                .build();
+            header.pack_start(&button);
+            compare_header.push(button.upcast());
         }
         let view = adw::ToolbarView::new();
         view.add_top_bar(&header);
         let summary = SummaryBar::new();
-        view.set_content(Some(&toasts));
+        view.set_content(Some(&stack));
         view.add_bottom_bar(&summary.root);
 
         let window = adw::ApplicationWindow::builder()
@@ -205,7 +223,8 @@ impl Window {
 
         Window {
             window,
-            title,
+            stack,
+            compare_header,
             toasts,
             summary,
             left,
@@ -243,6 +262,7 @@ impl Window {
         this.setup_compare_clipboard();
         this.setup_theme();
         this.setup_search();
+        this.setup_tabs();
         this.update_transform_actions();
         this.update_title();
         this.sync_scroll();
@@ -1096,6 +1116,7 @@ impl Window {
 
     /// The clipboard is read before opening the chooser to report missing text right away.
     fn compare_clipboard_with_file(self: &Rc<Self>) {
+        self.select_tab(PAGE_COMPARE);
         self.read_clipboard(|this, text| {
             this.choose_file(move |this, file| this.compare_text_with_file(text, &file));
         });
@@ -1209,12 +1230,50 @@ impl Window {
     }
 
     fn update_title(&self) {
-        let subtitle = format!(
-            "{} ↔ {}",
+        let title = format!(
+            "lljson — {} ↔ {}",
             self.pane(Side::Left).title(),
             self.pane(Side::Right).title()
         );
-        self.title.set_subtitle(&subtitle);
+        self.window.set_title(Some(&title));
+    }
+
+    fn setup_tabs(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.stack.connect_visible_child_name_notify(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.apply_page();
+            }
+        });
+        self.apply_page();
+    }
+
+    fn viewer_visible(&self) -> bool {
+        self.stack.visible_child_name().as_deref() == Some(PAGE_VIEWER)
+    }
+
+    /// Shows only the header widgets, summary bar and shortcuts of the visible page. The
+    /// comparison shortcuts are released while the Viewer is shown so that keys such as
+    /// `Ctrl+V` reach its text editor; the comparison actions themselves stay untouched.
+    fn apply_page(&self) {
+        let viewer = self.viewer_visible();
+        for widget in &self.compare_header {
+            widget.set_visible(!viewer);
+        }
+        self.summary.root.set_visible(!viewer);
+        if let Some(app) = self.window.application() {
+            for (action, accels) in ACCELS {
+                let accels: &[&str] = if viewer { &[] } else { accels };
+                app.set_accels_for_action(action, accels);
+            }
+        }
+    }
+
+    /// Selects the `compare` or `viewer` tab; unknown names are ignored.
+    pub fn select_tab(&self, name: &str) {
+        if matches!(name, PAGE_COMPARE | PAGE_VIEWER) {
+            self.stack.set_visible_child_name(name);
+        }
     }
 }
 

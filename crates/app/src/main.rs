@@ -13,6 +13,7 @@ mod summary;
 mod theme;
 mod transform;
 mod view;
+mod viewer;
 mod window;
 
 use std::cell::Cell;

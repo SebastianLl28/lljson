@@ -1,5 +1,6 @@
 //! Dev tooling, enabled in debug builds or with the `devtools` feature. Env vars:
 //!
+//! - `LLJSON_TAB=compare|viewer`: select the tab before anything else.
 //! - `LLJSON_TRACE=1`: timings since process start.
 //! - `LLJSON_SCREENSHOT=out.png`: render the window to PNG and quit;
 //!   `LLJSON_SCREENSHOT_DELAY_MS` sets the wait (default 1500).
@@ -61,6 +62,9 @@ pub fn rows_ready(rows: usize) {
 
 pub fn install(app_window: &Rc<Window>) {
     let window = &app_window.window;
+    if let Ok(tab) = std::env::var("LLJSON_TAB") {
+        app_window.select_tab(&tab);
+    }
     window.add_tick_callback(|_, _| {
         trace("first frame");
         glib::ControlFlow::Break
