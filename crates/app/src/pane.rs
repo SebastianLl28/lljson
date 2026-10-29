@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use adw::prelude::*;
-use gtk::glib;
+use gtk::{gio, glib};
 use jsonlens_core::Document;
 
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
@@ -83,6 +83,42 @@ impl Pane {
             .tooltip_text(format!("Pegar del portapapeles (Ctrl+{shift}V)"))
             .action_name(paste_action.as_str())
             .build();
+        let format = gio::Menu::new();
+        for (label, param) in [
+            ("Formatear con 2 espacios", "2"),
+            ("Formatear con 4 espacios", "4"),
+            ("Formatear con tabulaciones", "tab"),
+        ] {
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_action_and_target_value(
+                Some(&format!("win.format-{}", side.name())),
+                Some(&param.to_variant()),
+            );
+            format.append_item(&item);
+        }
+        let transform = gio::Menu::new();
+        transform.append(
+            Some("Minificar"),
+            Some(&format!("win.minify-{}", side.name())),
+        );
+        transform.append(
+            Some("Ordenar claves"),
+            Some(&format!("win.sort-{}", side.name())),
+        );
+        let export = gio::Menu::new();
+        export.append(
+            Some("Copiar texto del documento"),
+            Some(&format!("win.copy-text-{}", side.name())),
+        );
+        let menu = gio::Menu::new();
+        menu.append_section(None, &format);
+        menu.append_section(None, &transform);
+        menu.append_section(None, &export);
+        let format_button = gtk::MenuButton::builder()
+            .icon_name("format-justify-left-symbolic")
+            .tooltip_text("Formatear, minificar, ordenar claves o copiar el texto")
+            .menu_model(&menu)
+            .build();
         let bar = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(6)
@@ -90,6 +126,7 @@ impl Pane {
             .build();
         bar.append(&title);
         bar.append(&stats);
+        bar.append(&format_button);
         bar.append(&open);
         bar.append(&paste);
 

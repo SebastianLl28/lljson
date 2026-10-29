@@ -63,7 +63,7 @@ No se avanza de fase sin confirmación.
 - [x] Configurar clave de arrays e ignorar rutas.
 - [x] Copiar ruta y valor de nodo.
 - [x] Comparar portapapeles contra archivo.
-- [ ] Botones de formatear/minificar/ordenar.
+- [x] Botones de formatear/minificar/ordenar.
 - [ ] Tema claro/oscuro del sistema.
 
 ## Fase 9 — Empaquetado

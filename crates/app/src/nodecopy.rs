@@ -51,34 +51,56 @@ pub fn copy(
             notify(&format!("Ruta copiada: {}", preview(&path)));
         }
         Copy::Value if doc.kind(node).is_some_and(Kind::is_container) => {
-            let (sender, receiver) = async_channel::bounded(1);
             let doc = Arc::clone(doc);
-            let spawned = std::thread::Builder::new()
-                .name("jsonlens-copiar".to_owned())
-                .spawn(move || {
-                    let _ = sender.send_blocking(value_text(&doc, node));
-                });
-            if let Err(err) = spawned {
-                notify(&format!("No se pudo copiar el valor: {err}"));
-                return;
-            }
-            let clipboard = clipboard.clone();
-            let notify = Rc::clone(notify);
-            glib::MainContext::default().spawn_local(async move {
-                match receiver.recv().await {
-                    Ok(text) => {
-                        clipboard.set_text(&text);
-                        notify("Valor copiado");
-                    }
-                    Err(_) => notify("No se pudo copiar el valor"),
-                }
-            });
+            copy_in_background(
+                clipboard,
+                notify,
+                move || value_text(&doc, node),
+                "Valor copiado",
+            );
         }
         Copy::Value => {
             clipboard.set_text(&value_text(doc, node));
             notify("Valor copiado");
         }
     }
+}
+
+/// Copia el texto que produce `produce` (calculado en un hilo de fondo, por si es enorme) y
+/// avisa con `done` al terminar.
+pub fn copy_in_background(
+    clipboard: &gdk::Clipboard,
+    notify: &Notify,
+    produce: impl FnOnce() -> String + Send + 'static,
+    done: &'static str,
+) {
+    let (sender, receiver) = async_channel::bounded(1);
+    let spawned = std::thread::Builder::new()
+        .name("jsonlens-copiar".to_owned())
+        .spawn(move || {
+            let _ = sender.send_blocking(produce());
+        });
+    if let Err(err) = spawned {
+        notify(&format!("No se pudo copiar: {err}"));
+        return;
+    }
+    let clipboard = clipboard.clone();
+    let notify = Rc::clone(notify);
+    glib::MainContext::default().spawn_local(async move {
+        match receiver.recv().await {
+            Ok(text) => {
+                clipboard.set_text(&text);
+                notify(done);
+            }
+            Err(_) => notify("No se pudo copiar"),
+        }
+    });
+}
+
+/// Texto completo de un documento tal como está cargado (tras formatear, minificar u
+/// ordenar es el resultado de esa operación).
+pub fn document_text(doc: &Document) -> String {
+    String::from_utf8_lossy(doc.source_bytes()).into_owned()
 }
 
 /// Menú contextual de una fila, anclado en `(x, y)` de `parent`.
@@ -169,6 +191,12 @@ mod tests {
             "{\n  \"a\": [\n    1,\n    2\n  ]\n}"
         );
         assert_eq!(value_text(&d, find(&d, "$.e")), "[]");
+    }
+
+    #[test]
+    fn document_text_is_the_loaded_source() {
+        let text = " {\"a\" : [1,\n2]} ";
+        assert_eq!(document_text(&doc(text)), text);
     }
 
     #[test]

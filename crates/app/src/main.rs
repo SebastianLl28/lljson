@@ -8,6 +8,7 @@ mod nodecopy;
 mod options;
 mod pane;
 mod summary;
+mod transform;
 mod view;
 mod window;
 

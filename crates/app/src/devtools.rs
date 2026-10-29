@@ -10,7 +10,8 @@
 //! - `JSONLENS_GOTO=n,n,p`: activa «diferencia siguiente» (`n`) o «anterior» (`p`) en orden,
 //!   400 ms antes de la captura.
 //! - `JSONLENS_ACTIONS=win.hide-equal,…`: activa esas acciones de la ventana 800 ms antes
-//!   de la captura.
+//!   de la captura (`accion::parametro@ms`: parámetro y retardo opcionales).
+//!   `JSONLENS_PRINT_CLIPBOARD=1` escribe el portapapeles justo antes de la captura.
 //! - `JSONLENS_ARRAY_KEY=id` y `JSONLENS_IGNORE=regla;regla`: opciones de comparación.
 //! - `JSONLENS_COPY=lado:fila:path|value`: copia la ruta o el valor y escribe el
 //!   portapapeles. `JSONLENS_NODE_MENU=lado:fila`: abre el menú contextual de una fila.
@@ -154,16 +155,39 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
         );
     }
     if let Ok(list) = std::env::var("JSONLENS_ACTIONS") {
-        let names: Vec<String> = list.split(',').map(|n| n.trim().to_owned()).collect();
-        let weak = Rc::downgrade(app_window);
+        for entry in list.split(',') {
+            // `accion[::parametro][@ms]`: `ms` retrasa esa acción desde el inicio de la prueba.
+            let (entry, extra_ms) = match entry.trim().split_once('@') {
+                Some((entry, ms)) => (entry.to_owned(), ms.parse().unwrap_or(0)),
+                None => (entry.trim().to_owned(), 0),
+            };
+            let weak = Rc::downgrade(app_window);
+            glib::timeout_add_local_once(
+                Duration::from_millis(delay.saturating_sub(800) + extra_ms),
+                move || {
+                    let Some(app_window) = weak.upgrade() else {
+                        return;
+                    };
+                    let (action, param) = match entry.split_once("::") {
+                        Some((action, param)) => (action, Some(param.to_variant())),
+                        None => (entry.as_str(), None),
+                    };
+                    let _ = WidgetExt::activate_action(&app_window.window, action, param.as_ref());
+                },
+            );
+        }
+    }
+    if std::env::var_os("JSONLENS_PRINT_CLIPBOARD").is_some() {
+        let clipboard = app_window.window.clipboard();
         glib::timeout_add_local_once(
-            Duration::from_millis(delay.saturating_sub(800)),
+            Duration::from_millis(delay.saturating_sub(100)),
             move || {
-                if let Some(app_window) = weak.upgrade() {
-                    for name in names {
-                        let _ = WidgetExt::activate_action(&app_window.window, &name, None);
+                glib::MainContext::default().spawn_local(async move {
+                    match clipboard.read_text_future().await {
+                        Ok(text) => eprintln!("portapapeles: {text:?}"),
+                        Err(err) => eprintln!("portapapeles: error {err}"),
                     }
-                }
+                });
             },
         );
     }

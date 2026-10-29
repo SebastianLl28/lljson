@@ -15,6 +15,7 @@ use crate::nodecopy::{self, Copy};
 use crate::options::{self, OptionsText};
 use crate::pane::{Pane, Side};
 use crate::summary::{State, SummaryBar};
+use crate::transform::Transform;
 use crate::view::{self, Comparison, RowsModel, to_u32};
 
 const DEFAULT_WIDTH: i32 = 1200;
@@ -210,6 +211,7 @@ impl Window {
             this.pane(side).connect_changed(move || {
                 if let Some(this) = weak.upgrade() {
                     this.update_title();
+                    this.update_transform_actions();
                     this.rebuild_rows();
                 }
             });
@@ -218,6 +220,7 @@ impl Window {
         this.setup_hide_equal();
         this.setup_options();
         this.setup_compare_clipboard();
+        this.update_transform_actions();
         this.update_title();
         this.sync_scroll();
 
@@ -580,7 +583,115 @@ impl Window {
         }
     }
 
+    /// Formatear, minificar y ordenar claves el documento de un panel.
+    fn setup_transforms(self: &Rc<Self>, side: Side) {
+        let format = gio::SimpleAction::new(
+            &format!("format-{}", side.name()),
+            Some(glib::VariantTy::STRING),
+        );
+        let weak = Rc::downgrade(self);
+        format.connect_activate(move |_, param| {
+            let transform = param
+                .and_then(|p| p.str())
+                .and_then(Transform::format_from_param);
+            if let (Some(this), Some(transform)) = (weak.upgrade(), transform) {
+                this.transform(side, transform);
+            }
+        });
+        self.window.add_action(&format);
+        for (name, transform) in [("minify", Transform::Minify), ("sort", Transform::SortKeys)] {
+            let action = gio::SimpleAction::new(&format!("{name}-{}", side.name()), None);
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, _| {
+                if let Some(this) = weak.upgrade() {
+                    this.transform(side, transform);
+                }
+            });
+            self.window.add_action(&action);
+        }
+    }
+
+    fn setup_copy_text(self: &Rc<Self>, side: Side) {
+        let action = gio::SimpleAction::new(&format!("copy-text-{}", side.name()), None);
+        let weak = Rc::downgrade(self);
+        action.connect_activate(move |_, _| {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            let Some(doc) = this.pane(side).document() else {
+                return;
+            };
+            let weak_toast = Rc::downgrade(&this);
+            let notify: nodecopy::Notify = Rc::new(move |message| {
+                if let Some(this) = weak_toast.upgrade() {
+                    this.toast(message);
+                }
+            });
+            nodecopy::copy_in_background(
+                &this.window.clipboard(),
+                &notify,
+                move || nodecopy::document_text(&doc),
+                "Texto del documento copiado",
+            );
+        });
+        self.window.add_action(&action);
+    }
+
+    /// Las transformaciones solo están disponibles si el panel tiene un documento.
+    fn update_transform_actions(&self) {
+        for side in [Side::Left, Side::Right] {
+            let enabled = self.pane(side).document().is_some();
+            for name in ["format", "minify", "sort", "copy-text"] {
+                if let Some(action) = self
+                    .window
+                    .lookup_action(&format!("{name}-{}", side.name()))
+                    .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+                {
+                    action.set_enabled(enabled);
+                }
+            }
+        }
+    }
+
+    /// Reemplaza el texto del documento de un panel por su versión transformada. El texto
+    /// se genera en un hilo de fondo y se vuelve a cargar por el camino normal. Si mientras
+    /// tanto el panel recibió otro documento, el resultado se descarta.
+    pub fn transform(self: &Rc<Self>, side: Side, transform: Transform) {
+        let pane = Rc::clone(self.pane(side));
+        let Some(doc) = pane.document() else {
+            return;
+        };
+        let name = pane.title();
+        let (sender, receiver) = async_channel::bounded(1);
+        let worker = Arc::clone(&doc);
+        let spawned = std::thread::Builder::new()
+            .name("jsonlens-formato".to_owned())
+            .spawn(move || {
+                let _ = sender.send_blocking(transform.apply(&worker));
+            });
+        if let Err(err) = spawned {
+            self.toast(&format!("No se pudo ejecutar la operación: {err}"));
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let Ok(text) = receiver.recv().await else {
+                return;
+            };
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if !pane.document().is_some_and(|d| Arc::ptr_eq(&d, &doc)) {
+                return;
+            }
+            pane.load(Input::Text { name, text });
+            this.toast(transform.done_message());
+        });
+    }
+
     fn setup_actions(self: &Rc<Self>, side: Side) {
+        self.setup_transforms(side);
+        self.setup_copy_text(side);
         let open = gio::SimpleAction::new(&format!("open-{}", side.name()), None);
         let weak = Rc::downgrade(self);
         open.connect_activate(move |_, _| {
