@@ -9,6 +9,7 @@ mod format;
 mod generate;
 mod hash;
 mod highlight;
+mod locate;
 mod parser;
 mod path;
 mod rows;
@@ -26,6 +27,7 @@ pub use generate::{
     Changes, GenerateError, GenerateOptions, NODES_PER_RECORD, generate, record_count,
 };
 pub use highlight::{Highlight, Syntax, highlight_line};
+pub use locate::LineIndex;
 pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
 pub use path::{IgnoreRule, PatternError, PatternSegment};
 pub use rows::{

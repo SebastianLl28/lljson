@@ -247,3 +247,7 @@ RSS rose from ~296 MiB (Phase 11) to ~497 MiB, mostly the tags of the colored li
 Two traps found on the way, both runaway loops (100% CPU, GBs of RSS): sizing the gutter by
 `view.height()` (the whole text), and letting the gutter's labels affect the layout (now
 overlays) or changing a tag's color on every pass (it invalidates the whole layout).
+
+With the editor ↔ tree sync (Phase 16), same file and method: opens in 533 ms, worst frame
+33 ms, keystroke 20–33 ms, scroll 59.3 fps, RSS 510 MiB. Editing marks the tree as out of sync
+(no mapping until the next valid parse), so typing does no extra work.

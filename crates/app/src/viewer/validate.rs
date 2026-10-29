@@ -4,7 +4,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use lljson_core::{Document, Mode, ParseError, ParseOptions, Source, TreeRows, parse};
+use lljson_core::{Document, LineIndex, Mode, ParseError, ParseOptions, Source, TreeRows, parse};
 
 /// Quiet time after the last edit before the text is parsed.
 pub const DEBOUNCE_MS: u64 = 150;
@@ -67,6 +67,8 @@ pub struct Checked {
 pub struct Tree {
     pub document: Arc<Document>,
     pub rows: TreeRows,
+    /// Line starts of the parsed text, to map editor positions to byte offsets.
+    pub lines: Arc<LineIndex>,
 }
 
 /// Parses `text` in the given mode.
@@ -81,6 +83,7 @@ pub fn check(text: String, mode: Mode) -> Checked {
     match parse(Source::from(text.as_str()), &options) {
         Ok(parsed) => {
             let rows = TreeRows::new(&parsed.document);
+            let lines = Arc::new(LineIndex::new(&text));
             Checked {
                 validation: Validation::Valid {
                     fixes: parsed.fixes.len(),
@@ -88,6 +91,7 @@ pub fn check(text: String, mode: Mode) -> Checked {
                 tree: Some(Tree {
                     document: Arc::new(parsed.document),
                     rows,
+                    lines,
                 }),
             }
         }

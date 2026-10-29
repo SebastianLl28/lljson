@@ -3,6 +3,8 @@
 //! - `LLJSON_TAB=compare|viewer`: select the tab before anything else.
 //! - `LLJSON_VIEWER_FILE=path`: open that file in the Viewer tab; with `LLJSON_VIEWER_LATENCY=1`
 //!   it runs the editing-latency probe instead (open, keystrokes, scroll, memory) and quits.
+//! - `LLJSON_VIEWER_CURSOR=line:col` / `LLJSON_VIEWER_ROW=n`: one second after start, put the
+//!   Viewer cursor there / pick that tree row (to check the editor ↔ tree sync).
 //! - `LLJSON_TRACE=1`: timings since process start.
 //! - `LLJSON_SCREENSHOT=out.png`: render the window to PNG and quit;
 //!   `LLJSON_SCREENSHOT_DELAY_MS` sets the wait (default 1500).
@@ -73,6 +75,24 @@ pub fn install(app_window: &Rc<Window>) {
         } else {
             app_window.open_in_viewer(path.into());
         }
+    }
+    if let Ok(spec) = std::env::var("LLJSON_VIEWER_CURSOR")
+        && let Some((line, column)) = spec.split_once(':')
+        && let (Ok(line), Ok(column)) = (line.parse(), column.parse())
+    {
+        let viewer = app_window.viewer_for_test();
+        glib::timeout_add_local_once(Duration::from_secs(1), move || {
+            viewer.set_cursor_for_test(line, column);
+        });
+    }
+    if let Some(row) = std::env::var("LLJSON_VIEWER_ROW")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+    {
+        let viewer = app_window.viewer_for_test();
+        glib::timeout_add_local_once(Duration::from_secs(1), move || {
+            viewer.select_row_for_test(row);
+        });
     }
     window.add_tick_callback(|_, _| {
         trace("first frame");

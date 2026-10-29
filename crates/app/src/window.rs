@@ -1292,6 +1292,11 @@ impl Window {
     }
 
     #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn viewer_for_test(&self) -> Rc<ViewerPage> {
+        Rc::clone(&self.viewer)
+    }
+
+    #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn open_in_viewer(&self, path: std::path::PathBuf) {
         self.select_tab(PAGE_VIEWER);
         self.viewer.open_path(path);

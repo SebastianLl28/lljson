@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
-use lljson_core::{Document, Kind, Query, TreeLabel, TreeRows, tree_text};
+use lljson_core::{Document, Kind, NodeId, Query, TreeLabel, TreeRows, tree_text};
 
 use super::validate::Tree;
 use crate::nodecopy::{self, Copy};
@@ -32,6 +32,8 @@ struct TreeData {
     document: Option<Arc<Document>>,
     rows: TreeRows,
     search: SearchState,
+    /// Node picked by the user or by the editor cursor.
+    selected: Option<NodeId>,
 }
 
 /// Rebuilds of the whole row list (expand all, collapse all).
@@ -41,12 +43,39 @@ enum Rebuild {
     CollapseAll,
 }
 
+/// Called with the node the user selects in the tree.
+type OnSelect = Rc<dyn Fn(NodeId)>;
+
+/// The selected row. Replacing rows of the model drops the selection, so it is remembered by
+/// node and put back after every change.
+#[derive(Clone)]
+struct Select {
+    selection: gtk::SingleSelection,
+    /// The selection is being put back: not something the user did.
+    restoring: Rc<Cell<bool>>,
+    callback: Rc<RefCell<Option<OnSelect>>>,
+}
+
+impl Select {
+    fn restore(&self, data: &RefCell<TreeData>) {
+        let position = {
+            let data = data.borrow();
+            data.selected.and_then(|node| data.rows.position_of(node))
+        };
+        self.restoring.set(true);
+        self.selection
+            .set_selected(position.map_or(gtk::INVALID_LIST_POSITION, |p| p as u32));
+        self.restoring.set(false);
+    }
+}
+
 /// Handles shared by the widgets' signal handlers.
 #[derive(Clone)]
 struct Ctx {
     model: RowsModel,
     data: Rc<RefCell<TreeData>>,
     list: gtk::ListView,
+    select: Select,
     search: Rc<SearchUi>,
     /// Id of the latest search request; results of older ones are dropped.
     generation: Rc<Cell<u64>>,
@@ -63,9 +92,45 @@ impl TreeView {
     pub fn new(notify: nodecopy::Notify) -> TreeView {
         let model = RowsModel::new();
         let data = Rc::new(RefCell::new(TreeData::default()));
+        let selection = gtk::SingleSelection::builder()
+            .model(&model)
+            .autoselect(false)
+            .can_unselect(true)
+            .build();
+        let select = Select {
+            selection,
+            restoring: Rc::new(Cell::new(false)),
+            callback: Rc::new(RefCell::new(None)),
+        };
+        {
+            let (data, select) = (Rc::clone(&data), select.clone());
+            select
+                .selection
+                .clone()
+                .connect_selected_notify(move |selection| {
+                    if select.restoring.get() || selection.selected() == gtk::INVALID_LIST_POSITION
+                    {
+                        return;
+                    }
+                    let node = {
+                        let mut data = data.borrow_mut();
+                        let node = data.rows.get(selection.selected() as usize).map(|r| r.node);
+                        // Rows moving under the selection are not a new choice.
+                        if node.is_none() || node == data.selected {
+                            return;
+                        }
+                        data.selected = node;
+                        node
+                    };
+                    let callback = select.callback.borrow().clone();
+                    if let (Some(callback), Some(node)) = (callback, node) {
+                        callback(node);
+                    }
+                });
+        }
         let on_toggle: Rc<dyn Fn(u32)> = {
-            let (model, data) = (model.clone(), Rc::clone(&data));
-            Rc::new(move |position| toggle(&model, &data, position as usize))
+            let (model, data, select) = (model.clone(), Rc::clone(&data), select.clone());
+            Rc::new(move |position| toggle(&model, &data, &select, position as usize))
         };
         let on_menu: OnMenu = {
             let data = Rc::clone(&data);
@@ -75,7 +140,7 @@ impl TreeView {
             })
         };
         let list = gtk::ListView::builder()
-            .model(&gtk::NoSelection::new(Some(model.clone())))
+            .model(&select.selection)
             .factory(&factory(Rc::clone(&data), Rc::clone(&on_toggle), on_menu))
             .css_classes(["tree-view"])
             .build();
@@ -99,6 +164,7 @@ impl TreeView {
             model,
             data,
             list,
+            select,
             search,
             generation: Rc::new(Cell::new(0)),
             notify,
@@ -171,6 +237,33 @@ impl TreeView {
         }
     }
 
+    /// Picks the row at `position` as a click would.
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn select_position_for_test(&self, position: u32) {
+        self.ctx.select.selection.set_selected(position);
+    }
+
+    /// The selected node, if any.
+    pub fn selected(&self) -> Option<NodeId> {
+        self.ctx.data.borrow().selected
+    }
+
+    /// Calls `f` when the user picks a node in the tree (not when the code selects one).
+    pub fn connect_select(&self, f: impl Fn(NodeId) + 'static) {
+        *self.ctx.select.callback.borrow_mut() = Some(Rc::new(f));
+    }
+
+    /// Selects `node`, expanding what hides it, and scrolls to it. Does not call the
+    /// `connect_select` callback.
+    pub fn select_node(&self, node: NodeId) {
+        let ctx = &self.ctx;
+        ctx.data.borrow_mut().selected = Some(node);
+        if !show_node(ctx, node) {
+            ctx.data.borrow_mut().selected = None;
+            ctx.select.restore(&ctx.data);
+        }
+    }
+
     /// Goes to the next (or previous) result.
     pub fn step_search(&self, forward: bool) {
         step_match(&self.ctx, forward);
@@ -194,8 +287,10 @@ impl TreeView {
                 .label(label)
                 .tooltip_text(tooltip)
                 .build();
-            let (model, data) = (self.ctx.model.clone(), Rc::clone(&self.ctx.data));
-            button.connect_clicked(move |_| rebuild_all(&model, &data, rebuild));
+            let ctx = self.ctx.clone();
+            button.connect_clicked(move |_| {
+                rebuild_all(&ctx.model, &ctx.data, &ctx.select, rebuild);
+            });
             bar.append(&button);
         }
         let toggle = gtk::ToggleButton::builder()
@@ -222,10 +317,12 @@ impl TreeView {
             data.rows = tree.rows;
             // Node ids belong to the old document.
             data.search.clear();
+            data.selected = None;
         }
         let ctx = &self.ctx;
         // The borrow is released: the view requests the new rows right away.
         ctx.model.splice(0, ctx.model.len(), len, len);
+        ctx.select.restore(&ctx.data);
         if ctx.search.is_open() {
             run_search(ctx, false);
         }
@@ -237,15 +334,17 @@ impl TreeView {
             data.document = None;
             data.rows = TreeRows::default();
             data.search.clear();
+            data.selected = None;
         }
         self.ctx.generation.set(self.ctx.generation.get() + 1);
         self.ctx.search.set_count("");
         self.ctx.model.splice(0, self.ctx.model.len(), 0, 0);
+        self.ctx.select.restore(&self.ctx.data);
     }
 }
 
 /// Expands or collapses the container at `position`; other rows are left alone.
-fn toggle(model: &RowsModel, data: &RefCell<TreeData>, position: usize) {
+fn toggle(model: &RowsModel, data: &RefCell<TreeData>, select: &Select, position: usize) {
     let splice = {
         let mut data = data.borrow_mut();
         let TreeData { document, rows, .. } = &mut *data;
@@ -257,6 +356,7 @@ fn toggle(model: &RowsModel, data: &RefCell<TreeData>, position: usize) {
     // The borrow is released: the view requests the changed rows right away.
     if let Some((splice, len)) = splice {
         model.splice(splice.position, splice.removed, splice.added, len);
+        select.restore(data);
     }
 }
 
@@ -380,24 +480,33 @@ fn step_match(ctx: &Ctx, forward: bool) {
 
 /// Makes result `index` the current one: expands what hides it and scrolls to it.
 fn go_to_match(ctx: &Ctx, index: usize) {
-    let reveal = {
+    let node = {
         let mut data = ctx.data.borrow_mut();
-        let TreeData {
-            document,
-            rows,
-            search,
-        } = &mut *data;
-        let (Some(document), Some(&node)) = (document.as_deref(), search.matches.get(index)) else {
+        let Some(&node) = data.search.matches.get(index) else {
             return;
         };
-        search.current = Some(index);
-        rows.reveal(node, document)
+        data.search.current = Some(index);
+        node
     };
     let total = ctx.data.borrow().search.matches.len();
     ctx.search.set_count(&count_text(Some(index), total));
-    let Some(reveal) = reveal else {
+    if !show_node(ctx, node) {
         (ctx.notify)("Could not show that result");
-        return;
+    }
+}
+
+/// Expands what hides `node` and scrolls to it. `false` if it is not part of the document.
+fn show_node(ctx: &Ctx, node: NodeId) -> bool {
+    let reveal = {
+        let mut data = ctx.data.borrow_mut();
+        let TreeData { document, rows, .. } = &mut *data;
+        let Some(document) = document.as_deref() else {
+            return false;
+        };
+        rows.reveal(node, document)
+    };
+    let Some(reveal) = reveal else {
+        return false;
     };
     // The borrow is released: the view requests the changed rows right away.
     for (splice, len) in &reveal.splices {
@@ -411,6 +520,7 @@ fn go_to_match(ctx: &Ctx, index: usize) {
     glib::idle_add_local_once(move || {
         list.scroll_to(position, gtk::ListScrollFlags::NONE, None);
     });
+    true
 }
 
 /// Rebinds the rows on screen (and a few around them) so highlights follow the search.
@@ -426,11 +536,12 @@ fn refresh_visible(ctx: &Ctx) {
     let first = ((adjustment.value() / row_height) as usize).saturating_sub(4);
     let count = ((adjustment.page_size() / row_height) as usize + 10).min(len - first.min(len));
     ctx.model.splice(first, count, count, len);
+    ctx.select.restore(&ctx.data);
 }
 
 /// Rebuilds the whole row list on a background thread (it can hold a million rows) and swaps
 /// it in, unless another document was shown in the meantime.
-fn rebuild_all(model: &RowsModel, data: &Rc<RefCell<TreeData>>, rebuild: Rebuild) {
+fn rebuild_all(model: &RowsModel, data: &Rc<RefCell<TreeData>>, select: &Select, rebuild: Rebuild) {
     let Some(document) = data.borrow().document.clone() else {
         return;
     };
@@ -449,7 +560,7 @@ fn rebuild_all(model: &RowsModel, data: &Rc<RefCell<TreeData>>, rebuild: Rebuild
     if spawned.is_err() {
         return;
     }
-    let (model, data) = (model.clone(), Rc::clone(data));
+    let (model, data, select) = (model.clone(), Rc::clone(data), select.clone());
     glib::MainContext::default().spawn_local(async move {
         let Ok(rows) = receiver.recv().await else {
             return;
@@ -468,6 +579,7 @@ fn rebuild_all(model: &RowsModel, data: &Rc<RefCell<TreeData>>, rebuild: Rebuild
             (old, data.rows.len())
         };
         model.splice(0, old, new, new);
+        select.restore(&data);
     });
 }
 

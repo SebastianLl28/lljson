@@ -170,6 +170,39 @@ impl Editor {
         }
     }
 
+    /// Selects from `from` to `to` (each a line and a byte within it, both 0-based) and scrolls
+    /// to the start. The selection does not take the focus.
+    pub fn select_range(&self, from: (usize, usize), to: (usize, usize)) {
+        let buffer = self.view.buffer();
+        let iter_at = |(line, column): (usize, usize)| {
+            let (line, column) = (i32::try_from(line).ok()?, i32::try_from(column).ok()?);
+            buffer.iter_at_line_index(line, column)
+        };
+        let (Some(start), Some(end)) = (iter_at(from), iter_at(to)) else {
+            return;
+        };
+        buffer.select_range(&start, &end);
+        self.view
+            .scroll_to_iter(&mut start.clone(), 0.1, true, 0.0, 0.3);
+    }
+
+    /// The cursor as a line and a byte within it (both 0-based).
+    pub fn cursor(&self) -> (usize, usize) {
+        let buffer = self.view.buffer();
+        let iter = buffer.iter_at_mark(&buffer.get_insert());
+        (
+            usize::try_from(iter.line()).unwrap_or(0),
+            usize::try_from(iter.line_index()).unwrap_or(0),
+        )
+    }
+
+    /// Calls `f` whenever the cursor moves (typing included).
+    pub fn connect_cursor_moved(&self, f: impl Fn() + 'static) {
+        self.view
+            .buffer()
+            .connect_notify_local(Some("cursor-position"), move |_, _| f());
+    }
+
     pub fn text(&self) -> String {
         let buffer = self.view.buffer();
         buffer

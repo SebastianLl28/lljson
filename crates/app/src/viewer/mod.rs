@@ -14,11 +14,12 @@ mod validate;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use lljson_core::Mode;
+use lljson_core::{Document, LineIndex, Mode, NodeId};
 
 use crate::transform::Transform;
 
@@ -49,6 +50,18 @@ pub struct ViewerPage {
     validating: Generation,
     /// Pending debounce timer, cleared by the timer itself when it fires.
     debounce: RefCell<Option<glib::SourceId>>,
+    /// What the tree shows, to map between tree nodes and editor positions.
+    sync: RefCell<Option<SyncState>>,
+    /// The editor text is the one the tree was built from (no edit since).
+    synced: Cell<bool>,
+    /// A cursor → tree update is already queued.
+    cursor_queued: Cell<bool>,
+}
+
+/// The parsed text behind the tree.
+struct SyncState {
+    document: Arc<Document>,
+    lines: Arc<LineIndex>,
 }
 
 impl ViewerPage {
@@ -142,7 +155,11 @@ impl ViewerPage {
             validation: RefCell::new(None),
             validating: Generation::default(),
             debounce: RefCell::new(None),
+            sync: RefCell::new(None),
+            synced: Cell::new(false),
+            cursor_queued: Cell::new(false),
         });
+        this.setup_sync();
         this.setup_drop();
         this.setup_validation();
         this.setup_paste();
@@ -343,7 +360,79 @@ impl ViewerPage {
         });
     }
 
+    /// Keeps the editor selection and the tree selection pointing at the same node.
+    fn setup_sync(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.tree.connect_select(move |node| {
+            if let Some(this) = weak.upgrade() {
+                this.select_in_editor(node);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.editor.connect_cursor_moved(move || {
+            if let Some(this) = weak.upgrade() {
+                this.queue_cursor_sync();
+            }
+        });
+    }
+
+    /// Selects the text of `node`. Nothing if the text was edited since the tree was built:
+    /// the positions would be wrong.
+    fn select_in_editor(&self, node: NodeId) {
+        if !self.synced.get() {
+            return;
+        }
+        let sync = self.sync.borrow();
+        let Some(sync) = sync.as_ref() else {
+            return;
+        };
+        let Some(range) = sync.document.node_range(node) else {
+            return;
+        };
+        self.editor.select_range(
+            sync.lines.position(range.start),
+            sync.lines.position(range.end),
+        );
+    }
+
+    /// Selects in the tree the node under the cursor, once the current edit has settled.
+    fn queue_cursor_sync(self: &Rc<Self>) {
+        if self.cursor_queued.replace(true) {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            this.cursor_queued.set(false);
+            this.select_under_cursor();
+        });
+    }
+
+    fn select_under_cursor(&self) {
+        if !self.synced.get() || !self.editor.view.is_editable() {
+            return;
+        }
+        let node = {
+            let sync = self.sync.borrow();
+            let Some(sync) = sync.as_ref() else {
+                return;
+            };
+            let (line, column) = self.editor.cursor();
+            sync.lines
+                .offset(line, column)
+                .and_then(|offset| sync.document.node_at_offset(offset))
+        };
+        if let Some(node) = node
+            && self.tree.selected() != Some(node)
+        {
+            self.tree.select_node(node);
+        }
+    }
+
     fn cancel_validation(&self) {
+        self.synced.set(false);
         // The mark would point at the wrong place once the text changes.
         self.editor.clear_error();
         self.auto_fix.set_sensitive(false);
@@ -379,8 +468,19 @@ impl ViewerPage {
                     } = checked;
                     // Invalid text keeps the last valid tree while the user fixes it.
                     match tree {
-                        Some(tree) => this.tree.show(tree),
-                        None if result == Validation::Empty => this.tree.clear(),
+                        Some(tree) => {
+                            *this.sync.borrow_mut() = Some(SyncState {
+                                document: Arc::clone(&tree.document),
+                                lines: Arc::clone(&tree.lines),
+                            });
+                            this.synced.set(true);
+                            this.tree.show(tree);
+                            this.queue_cursor_sync();
+                        }
+                        None if result == Validation::Empty => {
+                            *this.sync.borrow_mut() = None;
+                            this.tree.clear();
+                        }
                         None => {}
                     }
                     this.status.show(&result);
@@ -418,6 +518,20 @@ impl ViewerPage {
                 Err(err) => this.toast(&format!("Could not open the file: {err}")),
             }
         });
+    }
+
+    /// Moves the editor cursor like a click would.
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn set_cursor_for_test(&self, line: i32, column: i32) {
+        let buffer = self.editor.view.buffer();
+        if let Some(iter) = buffer.iter_at_line_index(line, column) {
+            buffer.place_cursor(&iter);
+        }
+    }
+
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn select_row_for_test(&self, position: u32) {
+        self.tree.select_position_for_test(position);
     }
 
     /// The theme changed: repaint the syntax colors.
