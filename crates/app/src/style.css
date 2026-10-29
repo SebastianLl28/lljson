@@ -37,8 +37,8 @@
 .options-rules textview, .options-rules text { background: transparent; }
 
 /* Search results; the extra selector part keeps them above diff tints of any theme. */
-.json-view .json-row.search-match { background-color: alpha(@accent_bg_color, 0.22); }
-.json-view .json-row.search-current {
+.json-view .json-row.search-match, .tree-view .json-row.search-match { background-color: alpha(@accent_bg_color, 0.22); }
+.json-view .json-row.search-current, .tree-view .json-row.search-current {
   background-color: alpha(@accent_bg_color, 0.5);
   box-shadow: inset 3px 0 0 @accent_bg_color;
 }

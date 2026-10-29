@@ -51,6 +51,9 @@ pub const VIEWER_ACCELS: &[(&str, &[&str])] = &[
     ("win.viewer-format", &["<Control><Shift>f"]),
     ("win.viewer-minify", &["<Control><Shift>m"]),
     ("win.viewer-sort-keys", &["<Control><Shift>s"]),
+    ("win.viewer-search", &["<Control>f"]),
+    ("win.viewer-search-next", &["<Control>g"]),
+    ("win.viewer-search-prev", &["<Control><Shift>g"]),
 ];
 
 pub struct Window {
@@ -1252,6 +1255,23 @@ impl Window {
             }
         });
         self.window.add_action(&copy);
+        for (name, step) in [
+            ("viewer-search", None),
+            ("viewer-search-next", Some(true)),
+            ("viewer-search-prev", Some(false)),
+        ] {
+            let action = gio::SimpleAction::new(name, None);
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, _| {
+                if let Some(this) = weak.upgrade() {
+                    match step {
+                        Some(forward) => this.viewer.step_search(forward),
+                        None => this.viewer.open_search(),
+                    }
+                }
+            });
+            self.window.add_action(&action);
+        }
         for (name, transform) in [
             ("viewer-format", Transform::Format(Indent::Spaces(2))),
             ("viewer-minify", Transform::Minify),

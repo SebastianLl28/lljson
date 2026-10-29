@@ -111,7 +111,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 
 ## Phase 15 — Viewer tab: utilities
 - [x] Copy node path and value.
-- [ ] Search over keys and values.
+- [x] Search over keys and values.
 
 ## Phase 16 — Viewer tab: editor polish
 - [ ] Line numbers and syntax colors.

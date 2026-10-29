@@ -52,6 +52,15 @@ impl SearchUi {
     /// The buttons act on the pane's own search through the `*-left` / `*-right` actions.
     pub fn new(side: Side) -> SearchUi {
         let name = side.name();
+        SearchUi::with_actions(
+            &format!("win.search-next-{name}"),
+            &format!("win.search-prev-{name}"),
+            &format!("win.search-close-{name}"),
+        )
+    }
+
+    /// Same box, with the buttons wired to the given previous / next / close actions.
+    pub fn with_actions(next: &str, prev: &str, close: &str) -> SearchUi {
         let entry = gtk::SearchEntry::builder()
             .hexpand(true)
             .width_chars(6)
@@ -85,17 +94,17 @@ impl SearchUi {
         top.append(&count);
         top.append(&button(
             "go-up-symbolic",
-            &format!("win.search-prev-{name}"),
+            prev,
             "Previous result (Shift+Enter)",
         ));
         top.append(&button(
             "go-down-symbolic",
-            &format!("win.search-next-{name}"),
+            next,
             "Next result (Enter)",
         ));
         top.append(&button(
             "window-close-symbolic",
-            &format!("win.search-close-{name}"),
+            close,
             "Close (Esc)",
         ));
         let options = gtk::Box::builder()

@@ -420,6 +420,14 @@ impl ViewerPage {
         });
     }
 
+    pub fn open_search(&self) {
+        self.tree.open_search();
+    }
+
+    pub fn step_search(&self, forward: bool) {
+        self.tree.step_search(forward);
+    }
+
     pub fn copy_all(&self) {
         self.root.clipboard().set_text(&self.editor.text());
         self.toast("Text copied");

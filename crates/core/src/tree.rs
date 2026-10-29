@@ -19,6 +19,15 @@ pub struct TreeRow {
     pub depth: u16,
 }
 
+/// Result of [`TreeRows::reveal`].
+#[derive(Debug, PartialEq, Eq)]
+pub struct TreeReveal {
+    /// Row of the revealed node once the splices are applied.
+    pub position: usize,
+    /// Each splice with the row count after applying it, in the order to apply them.
+    pub splices: Vec<(Splice, usize)>,
+}
+
 /// Visible rows of one document. Methods taking a document must always receive the one the
 /// list was built with.
 #[derive(Debug, Default)]
@@ -96,6 +105,38 @@ impl TreeRows {
                 added,
             })
         }
+    }
+
+    /// Row showing `node`, if it is visible.
+    pub fn position_of(&self, node: NodeId) -> Option<usize> {
+        // Rows are in document order, which is node order.
+        let at = self.rows.partition_point(|r| r.node.index() < node.index());
+        self.rows.get(at).filter(|r| r.node == node).map(|_| at)
+    }
+
+    /// Expands every collapsed ancestor of `node` so that it has a row. `None` if `node` is
+    /// not part of `doc`.
+    pub fn reveal(&mut self, node: NodeId, doc: &Document) -> Option<TreeReveal> {
+        doc.node(node)?;
+        let mut chain = Vec::new();
+        let mut current = doc.node(node)?.parent();
+        while let Some(ancestor) = current {
+            chain.push(ancestor);
+            current = doc.node(ancestor)?.parent();
+        }
+        let mut splices = Vec::new();
+        // Outermost first: an inner ancestor only has a row once the outer ones are open.
+        for ancestor in chain.into_iter().rev() {
+            if !self.collapsed.get(ancestor.index()).copied().unwrap_or(false) {
+                continue;
+            }
+            let at = self.position_of(ancestor)?;
+            if let Some(splice) = self.toggle(at, doc) {
+                splices.push((splice, self.rows.len()));
+            }
+        }
+        let position = self.position_of(node)?;
+        Some(TreeReveal { position, splices })
     }
 
     /// Shows every node. The whole list changes, so callers replace it entirely.
@@ -241,6 +282,51 @@ mod tests {
                 format!("{label}@{}", row.depth)
             })
             .collect()
+    }
+
+    #[test]
+    fn reveal_expands_every_collapsed_ancestor() {
+        let d = doc(r#"{"a":{"b":{"c":1}},"d":2}"#);
+        let mut rows = TreeRows::new(&d);
+        rows.collapse_all(&d);
+        assert_eq!(rows.len(), 3);
+        let c = (0..d.node_count())
+            .map(NodeId::from_index)
+            .find(|&id| d.path(id) == "$.a.b.c")
+            .expect("path");
+        assert_eq!(rows.position_of(c), None);
+        let reveal = rows.reveal(c, &d).expect("revealed");
+        assert_eq!(reveal.splices.len(), 2);
+        assert_eq!(reveal.splices.last().map(|s| s.1), Some(rows.len()));
+        assert_eq!(rows.position_of(c), Some(reveal.position));
+        assert_eq!(rows.len(), 5);
+    }
+
+    #[test]
+    fn reveal_of_a_visible_node_changes_nothing() {
+        let d = doc(r#"{"a":[1,2]}"#);
+        let mut rows = TreeRows::new(&d);
+        let target = NodeId::from_index(2);
+        let reveal = rows.reveal(target, &d).expect("revealed");
+        assert!(reveal.splices.is_empty());
+        assert_eq!(reveal.position, 2);
+        assert_eq!(rows.len(), 4);
+    }
+
+    #[test]
+    fn reveal_of_a_foreign_node_is_none() {
+        let d = doc("[1]");
+        let mut rows = TreeRows::new(&d);
+        assert_eq!(rows.reveal(NodeId::from_index(99), &d), None);
+    }
+
+    #[test]
+    fn position_of_hidden_node_is_none() {
+        let d = doc(r#"{"a":[1]}"#);
+        let mut rows = TreeRows::new(&d);
+        rows.collapse_all(&d);
+        assert_eq!(rows.position_of(NodeId::from_index(2)), None);
+        assert_eq!(rows.position_of(d.root()), Some(0));
     }
 
     #[test]
