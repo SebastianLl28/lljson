@@ -11,6 +11,7 @@ use jsonlens_core::{DiffOptions, Rows, diff};
 
 use crate::loader::Input;
 use crate::pane::{Pane, Side};
+use crate::summary::{State, SummaryBar};
 use crate::view::{self, Comparison, RowsModel};
 
 const DEFAULT_WIDTH: i32 = 1200;
@@ -28,6 +29,7 @@ pub struct Window {
     pub window: adw::ApplicationWindow,
     title: adw::WindowTitle,
     toasts: adw::ToastOverlay,
+    summary: SummaryBar,
     left: Rc<Pane>,
     right: Rc<Pane>,
     comparison: Rc<RefCell<Comparison>>,
@@ -88,7 +90,9 @@ impl Window {
         let header = adw::HeaderBar::builder().title_widget(&title).build();
         let view = adw::ToolbarView::new();
         view.add_top_bar(&header);
+        let summary = SummaryBar::new();
         view.set_content(Some(&toasts));
+        view.add_bottom_bar(&summary.root);
 
         let window = adw::ApplicationWindow::builder()
             .application(app)
@@ -104,6 +108,7 @@ impl Window {
             window,
             title,
             toasts,
+            summary,
             left,
             right,
             comparison,
@@ -196,12 +201,17 @@ impl Window {
                 return;
             }
             let len = comparison.rows.len();
+            let state = comparison
+                .diff
+                .as_ref()
+                .map_or(State::Incomplete, |d| State::Compared(d.summary()));
             // El préstamo termina antes de avisar a los modelos: la vista vuelve a leer
             // las filas durante `items_changed`.
             let old = this.comparison.replace(comparison);
             for model in [&this.left_model, &this.right_model] {
                 model.splice(0, model.len(), len, len);
             }
+            this.summary.update(state);
             this.left.show_list();
             this.right.show_list();
             #[cfg(any(debug_assertions, feature = "devtools"))]

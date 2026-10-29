@@ -5,6 +5,7 @@ mod args;
 mod devtools;
 mod loader;
 mod pane;
+mod summary;
 mod view;
 mod window;
 
