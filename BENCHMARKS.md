@@ -206,3 +206,29 @@ Options for the user to choose from (none applied yet, per `CLAUDE.md`):
   engine, so it would not fix long lines either.
 
 Recommendation: **A + C**, with **B** as the fallback for invalid single-line text.
+
+### After formatting on open and chunked insertion (Phase 11, options A + C)
+
+Same machine and method. Valid JSON is pretty-printed on the background thread before reaching
+the editor (`viewer/prepare.rs`) and the text is inserted in 256 KiB slices from idle callbacks
+(`viewer/editor.rs`) at a priority between redraw and the text view's own layout, so frames are
+drawn between slices. "Worst frame" is the longest frame interval while loading.
+
+| File (as on disk) | Before: frozen on open | After: fully inserted | Frames drawn while loading | Worst frame | Keystroke (median) | RSS |
+|---|---|---|---|---|---|---|
+| 100k nodes indented, 2.0 MiB | 93 ms | 65 ms | 2 | 50 ms | 18–33 ms | 96 MiB |
+| 1M nodes indented, 20.3 MiB | 404 ms | **386 ms** | 22 | **33 ms** | 18–33 ms | 296 MiB |
+| 1M nodes minified, 13.3 MiB | **> 280 s (aborted)** | **383 ms** (opens indented, 20.3 MiB) | 22 | **33 ms** | 18–33 ms | 295 MiB |
+
+Scrolling stays at 60 fps (max interval 16.7 ms) and the text length is verified after loading.
+
+Findings along the way:
+- Slices at the default idle priority (200) were drawn smoothly but took ~9 s to complete,
+  because the text view's background layout (priority 125) ran between slices. Slicing at
+  `PRIORITY_REDRAW + 1` removes that wait.
+- Text that is not valid strict JSON (invalid, or JSONC with comments) is not reformatted, so a
+  very long single line still behaves as in the table above: 268 KiB opens in 518 ms with a
+  300 ms worst frame and ~175 ms per keystroke; 668 KiB opens in 1.8 s with a 1.1 s worst frame
+  and ~715 ms per keystroke. That case is what option B (line-length threshold) would cover.
+- Replacing the content of an already-loaded large buffer still clears it in one call;
+  not measured separately.

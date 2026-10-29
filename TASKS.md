@@ -92,7 +92,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Measure editing latency with the 1M-node file and report numbers.
 - [x] Format valid JSON off the UI thread when opening a file or dropping text (long-line fix).
 - [x] Insert opened text in chunks from idle callbacks (no UI freeze on large files).
-- [ ] Re-measure the Viewer with the 1M-node files and update `BENCHMARKS.md`.
+- [x] Re-measure the Viewer with the 1M-node files and update `BENCHMARKS.md`.
 
 ## Phase 12 — Viewer tab: live validation
 - [ ] Debounced background parse with generation counter.
