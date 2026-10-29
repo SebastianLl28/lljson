@@ -1,6 +1,6 @@
 [package]
 name = "lljson"
-description = "Compara y formatea JSON"
+description = "Compares and formats JSON"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,5 +14,5 @@ async-channel.workspace = true
 clap.workspace = true
 
 [features]
-# Herramientas de desarrollo (capturas, trazas y prueba de scroll) en builds release.
+# Development tools (screenshots, traces and scroll test) in release builds.
 devtools = []

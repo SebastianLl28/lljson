@@ -1,102 +1,102 @@
-# BENCHMARKS.md — Resultados contra las metas de rendimiento
+# BENCHMARKS.md — Results against the performance goals
 
-Medido el **2026-10-28** (Fase 4).
+Measured on **2026-10-28** (Phase 4).
 
-- **Máquina:** Intel Core i7-1355U (10 núcleos / 12 hilos), 38 GB de RAM, NVMe (Micron),
-  CachyOS (kernel 7.3.0), Rust 1.99.1, perfil `release`.
-- **Archivo:** generado con `lljson-cli generate` (semilla 1): array de 83 334 registros,
-  **1 000 009 nodos**, 20,7 MiB indentado con 2 espacios (13,7 MiB minificado). Incluye
-  escapes, unicode, números decimales, `null` y anidamiento de 3 niveles.
-  La variante "10 cambios" se genera con `--modify 10`.
-- **Cómo reproducir:**
+- **Machine:** Intel Core i7-1355U (10 cores / 12 threads), 38 GB RAM, NVMe (Micron),
+  CachyOS (kernel 7.3.0), Rust 1.99.1, `release` profile.
+- **File:** generated with `lljson-cli generate` (seed 1): array of 83,334 records,
+  **1,000,009 nodes**, 20.7 MiB indented with 2 spaces (13.7 MiB minified). Includes
+  escapes, unicode, decimal numbers, `null` and 3 levels of nesting.
+  The "10 changes" variant is generated with `--modify 10`.
+- **How to reproduce:**
   ```sh
   cargo bench -p lljson-core                  # criterion: parse, hash, diff, format
-  cargo bench -p lljson-core --bench memory   # RSS con los dos documentos cargados
+  cargo bench -p lljson-core --bench memory   # RSS with both documents loaded
   ```
 
-## Resumen frente a las metas de SPEC.md
+## Summary against the SPEC.md goals
 
-| Métrica | Meta | Resultado | Estado |
+| Metric | Goal | Result | Status |
 |---|---|---|---|
-| Parseo (1M nodos) | < 1 s | **53 ms** (estricto), 57 ms (tolerante) | ✅ ~19× de margen |
-| Diff de dos archivos casi idénticos | < 500 ms | **8,2 ms** solo el diff; **72 ms** de punta a punta (leer + parsear ambos + diff) | ✅ ~7× de margen de punta a punta |
-| Memoria con ambos archivos cargados | < 500 MB | **158 MiB** de RSS (2 × 1M nodos + diff) | ✅ ~3× de margen |
-| Arranque de la app | < 300 ms | **~210 ms** hasta tener las 1 250 012 filas en la vista (primer frame a ~70–100 ms) | ✅ |
-| Scroll a 60 fps | fluido | **59–59,4 fps** de media, p99 ≤ 33 ms (monitor de 60 Hz) | ✅ |
-| Memoria de la app con ambos archivos | < 500 MB | **~240–270 MiB** de RSS | ✅ |
+| Parsing (1M nodes) | < 1 s | **53 ms** (strict), 57 ms (tolerant) | ✅ ~19× margin |
+| Diff of two nearly identical files | < 500 ms | **8.2 ms** diff only; **72 ms** end to end (read + parse both + diff) | ✅ ~7× margin end to end |
+| Memory with both files loaded | < 500 MB | **158 MiB** RSS (2 × 1M nodes + diff) | ✅ ~3× margin |
+| App startup | < 300 ms | **~210 ms** until the 1,250,012 rows are in the view (first frame at ~70–100 ms) | ✅ |
+| Scroll at 60 fps | smooth | **59–59.4 fps** average, p99 ≤ 33 ms (60 Hz monitor) | ✅ |
+| App memory with both files | < 500 MB | **~240–270 MiB** RSS | ✅ |
 
-## Detalle (criterion, mediana)
+## Detail (criterion, median)
 
-### Parseo — `benches/parse.rs`
-| Opción | Tiempo | Rendimiento |
+### Parsing — `benches/parse.rs`
+| Option | Time | Throughput |
 |---|---|---|
-| lljson estricto | 52,9 ms | 391 MiB/s |
-| lljson tolerante | 57,3 ms | 361 MiB/s |
-| serde_json → `Value` | 199,9 ms | 103 MiB/s |
-| simd-json → `BorrowedValue` | 73,1 ms | 283 MiB/s |
-| simd-json → tape | 26,9 ms | 768 MiB/s |
+| lljson strict | 52.9 ms | 391 MiB/s |
+| lljson tolerant | 57.3 ms | 361 MiB/s |
+| serde_json → `Value` | 199.9 ms | 103 MiB/s |
+| simd-json → `BorrowedValue` | 73.1 ms | 283 MiB/s |
+| simd-json → tape | 26.9 ms | 768 MiB/s |
 
-Incluye la construcción del arena y el hash de todos los subárboles. La decisión de la
-Fase 1 (parser propio) se mantiene: solo el tape de simd-json es más rápido y no da arena,
-modo tolerante ni rangos sobre el texto original.
+Includes building the arena and hashing all subtrees. The Phase 1 decision
+(custom parser) stands: only the simd-json tape is faster, and it provides no arena,
+tolerant mode or ranges over the original text.
 
 ### Hash — `benches/hash.rs`
-| Caso | Tiempo |
+| Case | Time |
 |---|---|
-| Recalcular todos los hashes sobre el arena (estimación) | 28,1 ms |
-| Comparar dos documentos por el hash de la raíz | < 1 ns |
+| Recompute all hashes over the arena (estimate) | 28.1 ms |
+| Compare two documents by the root hash | < 1 ns |
 
-El hash se calcula dentro del parser y no se puede aislar; la estimación repite el mismo
-trabajo de xxh3 sobre el arena ya construido (sin la forma canónica de los números), así
-que es una cota aproximada de su peso dentro de los ~53 ms del parseo.
+The hash is computed inside the parser and cannot be isolated; the estimate repeats the same
+xxh3 work over the already-built arena (without the canonical form of numbers), so
+it is an approximate bound on its weight within the ~53 ms of parsing.
 
 ### Diff — `benches/diff.rs`
-| Caso | Cambios encontrados | Tiempo |
+| Case | Changes found | Time |
 |---|---|---|
-| Idénticos | 0 | 0,33 ms |
-| 10 cambios (por índice) | 10 modificados | 8,2 ms |
-| 10 cambios mixtos, arrays por clave `id` | 1 añadido, 2 eliminados, 7 modificados (2 de tipo) | 15,8 ms |
-| 10 cambios ignorando `score` y `$[*].address.zip` | 10 modificados | 9,6 ms |
-| 1 registro insertado al principio, por índice | 649 918 (todo se desplaza) | 84,1 ms |
-| 1 registro insertado al principio, por clave `id` | 1 añadido | 13,6 ms |
+| Identical | 0 | 0.33 ms |
+| 10 changes (by index) | 10 modified | 8.2 ms |
+| 10 mixed changes, arrays by key `id` | 1 added, 2 removed, 7 modified (2 type changes) | 15.8 ms |
+| 10 changes ignoring `score` and `$[*].address.zip` | 10 modified | 9.6 ms |
+| 1 record inserted at the start, by index | 649,918 (everything shifts) | 84.1 ms |
+| 1 record inserted at the start, by key `id` | 1 added | 13.6 ms |
 
-El peor caso razonable (una inserción que desplaza todos los índices) sigue a 6× de la meta.
-Con `--array-key id` el mismo caso se reduce al único cambio real.
+The worst reasonable case (an insertion that shifts all indices) is still 6× under the goal.
+With `--array-key id` the same case is reduced to the single real change.
 
-### Formateo — `benches/format.rs` (entrada minificada)
-| Operación | Tiempo | Rendimiento |
+### Formatting — `benches/format.rs` (minified input)
+| Operation | Time | Throughput |
 |---|---|---|
-| Formatear (2 espacios) | 30,6 ms | 448 MiB/s |
-| Minificar | 22,1 ms | 618 MiB/s |
-| Ordenar claves | 54,2 ms | 252 MiB/s |
+| Format (2 spaces) | 30.6 ms | 448 MiB/s |
+| Minify | 22.1 ms | 618 MiB/s |
+| Sort keys | 54.2 ms | 252 MiB/s |
 
-### Memoria — `benches/memory.rs`
-| Etapa | RSS |
+### Memory — `benches/memory.rs`
+| Stage | RSS |
 |---|---|
-| Inicial | 24,3 MiB |
-| Tras abrir (mmap) y parsear los dos documentos | 157,7 MiB (+133,4) |
-| Tras el diff | 157,7 MiB (+0,0) |
+| Initial | 24.3 MiB |
+| After opening (mmap) and parsing both documents | 157.7 MiB (+133.4) |
+| After the diff | 157.7 MiB (+0.0) |
 
-Teórico: 41,3 MiB de texto (mmap) + 91,6 MiB de arena (`Node` = 48 bytes × 2 000 018 nodos).
-El diff no sube el RSS porque reutiliza memoria que el parser ya liberó. Queda por medir
-la memoria de la UI (lista plana de filas y widgets visibles) en las fases 6 y 7.
+Theoretical: 41.3 MiB of text (mmap) + 91.6 MiB of arena (`Node` = 48 bytes × 2,000,018 nodes).
+The diff does not raise the RSS because it reuses memory the parser already freed. The UI
+memory (flat row list and visible widgets) is still to be measured in phases 6 and 7.
 
-### De punta a punta con la CLI (10 ejecuciones, mediana)
-| Comando | Tiempo | Pico de RSS |
+### End to end with the CLI (10 runs, median)
+| Command | Time | Peak RSS |
 |---|---|---|
-| `diff -q a.json b.json` (10 cambios) | 72 ms | ~150 MiB |
+| `diff -q a.json b.json` (10 changes) | 72 ms | ~150 MiB |
 | `diff -q --array-key id a.json b.json` | 83 ms | ~153 MiB |
 | `format a.json` | 79 ms | ~153 MiB |
 | `minify a.json` | 71 ms | ~153 MiB |
 
-Incluye el arranque del proceso, la lectura con mmap, el parseo (los dos documentos en
-paralelo en `diff`) y la escritura de la salida a `/dev/null`.
+Includes process startup, reading with mmap, parsing (both documents in
+parallel in `diff`) and writing the output to `/dev/null`.
 
-## App GTK con 1 millón de nodos (Fase 6)
+## GTK app with 1 million nodes (Phase 6)
 
-Medido el **2026-10-28**, perfil `release` con la feature `devtools`, Wayland, monitor de 60 Hz,
-misma máquina que arriba. Archivos: `generate` (semilla 1) y `generate --modify 10 --type-change 5`,
-21,7 MB cada uno, 1 250 012 filas alineadas, altura de contenido 23,75 M px.
+Measured on **2026-10-28**, `release` profile with the `devtools` feature, Wayland, 60 Hz monitor,
+same machine as above. Files: `generate` (seed 1) and `generate --modify 10 --type-change 5`,
+21.7 MB each, 1,250,012 aligned rows, content height 23.75 M px.
 
 ```sh
 lljson-cli generate > a.json
@@ -104,27 +104,27 @@ lljson-cli generate --modify 10 --type-change 5 > b.json
 LLJSON_TRACE=1 LLJSON_SCROLL_TEST=10 cargo run --release -p lljson --features devtools -- a.json b.json
 ```
 
-| Métrica | Resultado (3 ejecuciones) |
+| Metric | Result (3 runs) |
 |---|---|
-| Primer frame | 71–101 ms |
-| Documentos cargados (cada uno, en paralelo) | 52–62 ms |
-| Filas listas en la vista | 208–224 ms desde el arranque |
-| Scroll continuo (5 s, 3000 px/s) | 58,4–59,4 fps; p50/p95 16,7 ms; 2–3 frames > 25 ms de ~295; máx 50–100 ms |
-| Saltos aleatorios (5 s) | 59,0–59,2 fps; p95 16,7 ms; p99 31–33 ms; 4–5 frames > 25 ms; máx 33 ms |
-| RSS al final | 242–273 MiB (VmHWM igual) |
+| First frame | 71–101 ms |
+| Documents loaded (each, in parallel) | 52–62 ms |
+| Rows ready in the view | 208–224 ms from startup |
+| Continuous scroll (5 s, 3000 px/s) | 58.4–59.4 fps; p50/p95 16.7 ms; 2–3 frames > 25 ms out of ~295; max 50–100 ms |
+| Random jumps (5 s) | 59.0–59.2 fps; p95 16.7 ms; p99 31–33 ms; 4–5 frames > 25 ms; max 33 ms |
+| Final RSS | 242–273 MiB (VmHWM the same) |
 
-Los frames lentos aislados (≈1 %) quedan por investigar; el p95 está en el intervalo de
-refresco del monitor. Limitación conocida: **expandir la raíz tarda ~54 ms en el hilo de la UI**
-(`benches/rows.rs`), por encima de los 16 ms de un frame.
+The isolated slow frames (≈1%) are still to be investigated; the p95 is at the monitor's
+refresh interval. Known limitation: **expanding the root takes ~54 ms on the UI thread**
+(`benches/rows.rs`), above the 16 ms of a frame.
 
-### Navegación entre diferencias — `benches/rows.rs` (Fase 7)
-| Caso | Tiempo |
+### Navigating between differences — `benches/rows.rs` (Phase 7)
+| Case | Time |
 |---|---|
-| `find_change`, peor caso: recorrer las 1 250 012 filas sin hallar ninguna | 3,0 ms |
+| `find_change`, worst case: scan all 1,250,012 rows without finding any | 3.0 ms |
 
-Se ejecuta en el hilo de la UI (meta: < 16 ms por frame).
+Runs on the UI thread (goal: < 16 ms per frame).
 
-### Ocultar secciones iguales (Fase 7)
-Con los dos archivos de 1 M de nodos (`--modify 10 --type-change 5`), al activar el interruptor
-las filas pasan de 1 250 012 a **83 456**. La reconstrucción (diff + filas) corre en un hilo de
-fondo y tarda ~190 ms hasta que la vista se actualiza; el hilo de la UI solo recibe el resultado.
+### Hiding equal sections (Phase 7)
+With the two 1 M-node files (`--modify 10 --type-change 5`), turning the switch on
+takes the rows from 1,250,012 to **83,456**. The rebuild (diff + rows) runs on a background
+thread and takes ~190 ms until the view updates; the UI thread only receives the result.

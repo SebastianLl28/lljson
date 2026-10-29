@@ -1,6 +1,6 @@
-//! Motor de diff semántico entre dos documentos.
-//! Los subárboles con el mismo hash se consideran iguales y no se recorren.
-//! Es iterativo (pila explícita): la profundidad no está limitada por la pila del hilo.
+//! Semantic diff between two documents.
+//! Subtrees with equal hashes are treated as equal and skipped. Iterative, so depth is
+//! not limited by the thread stack.
 
 use std::hash::Hash;
 
@@ -9,24 +9,23 @@ use ahash::AHashMap;
 use crate::document::{Document, Kind, Node, NodeId};
 use crate::path::{IgnoreRule, PatternSegment};
 
-/// Estado de un nodo tras el diff.
+/// Status of a node after the diff.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum DiffStatus {
-    /// Igual en ambos lados (o dentro de un subárbol igual).
     #[default]
     Equal,
-    /// Solo existe en el documento derecho (el subárbol completo).
+    /// Only in the right document (whole subtree).
     Added,
-    /// Solo existe en el documento izquierdo (el subárbol completo).
+    /// Only in the left document (whole subtree).
     Removed,
-    /// Escalar con distinto valor.
+    /// Scalar with a different value.
     Modified,
-    /// Distinto tipo en cada lado (p. ej. `"1"` y `1`); marca el subárbol completo.
+    /// Different type on each side (e.g. `"1"` and `1`); marks the whole subtree.
     TypeChanged,
-    /// Excluido de la comparación por una [`IgnoreRule`] (el subárbol completo).
+    /// Excluded by an [`IgnoreRule`] (whole subtree).
     Ignored,
-    /// Contenedor con alguna diferencia entre sus descendientes.
+    /// Container with some difference among its descendants.
     Contains,
 }
 
@@ -38,7 +37,6 @@ pub enum ChangeKind {
     TypeChanged,
 }
 
-/// Una diferencia concreta, con el nodo implicado en cada documento.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Change {
     pub kind: ChangeKind,
@@ -46,14 +44,14 @@ pub struct Change {
     pub right: Option<NodeId>,
 }
 
-/// Recuento de cambios. Un subárbol añadido o eliminado cuenta como un cambio.
+/// Change counts. An added or removed subtree counts as one change.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     pub added: usize,
     pub removed: usize,
-    /// Incluye los cambios de tipo.
+    /// Includes type changes.
     pub modified: usize,
-    /// Cambios de tipo (subconjunto de `modified`).
+    /// Subset of `modified`.
     pub type_changed: usize,
 }
 
@@ -65,15 +63,12 @@ impl Summary {
 
 #[derive(Clone, Debug, Default)]
 pub struct DiffOptions {
-    /// Clave para emparejar los elementos de los arrays (p. ej. `"id"`). Se aplica a los
-    /// arrays cuyos elementos, en ambos lados, son todos objetos con esa clave; el resto
-    /// se compara por índice.
+    /// Key used to pair array elements (e.g. `"id"`). Applies only to arrays whose
+    /// elements, on both sides, are all objects with that key; others are paired by index.
     pub array_key: Option<String>,
-    /// Claves y rutas que no se comparan.
     pub ignore: Vec<IgnoreRule>,
 }
 
-/// Resultado del diff: estado de cada nodo, emparejamientos y lista de cambios.
 #[derive(Debug)]
 pub struct DiffResult {
     left_status: Vec<DiffStatus>,
@@ -110,18 +105,18 @@ impl DiffResult {
             .unwrap_or_default()
     }
 
-    /// Nodo derecho emparejado con un nodo izquierdo. Solo se registra para los nodos que
-    /// el diff recorrió; dentro de subárboles iguales se usa [`pair_children`] bajo demanda.
+    /// Right node paired with a left node. Only recorded for nodes the diff visited; inside
+    /// equal subtrees use [`pair_children`] on demand.
     pub fn left_match(&self, id: NodeId) -> Option<NodeId> {
         some(self.left_match.get(id.index()).copied())
     }
 
-    /// Nodo izquierdo emparejado con un nodo derecho (ver [`DiffResult::left_match`]).
+    /// Left node paired with a right node (see [`DiffResult::left_match`]).
     pub fn right_match(&self, id: NodeId) -> Option<NodeId> {
         some(self.right_match.get(id.index()).copied())
     }
 
-    /// Diferencias en orden de documento.
+    /// Changes in document order.
     pub fn changes(&self) -> &[Change] {
         &self.changes
     }
@@ -139,7 +134,6 @@ fn some(id: Option<NodeId>) -> Option<NodeId> {
     id.filter(|id| !id.is_none())
 }
 
-/// Compara dos documentos.
 pub fn diff(left: &Document, right: &Document, options: &DiffOptions) -> DiffResult {
     let mut differ = Differ {
         left,
@@ -157,12 +151,10 @@ pub fn diff(left: &Document, right: &Document, options: &DiffOptions) -> DiffRes
     differ.result
 }
 
-/// Empareja los hijos de dos contenedores del mismo tipo: los objetos por clave
-/// (las claves repetidas, por orden de aparición) y los arrays por índice o por
-/// [`DiffOptions::array_key`].
-/// El orden de salida es el del contenedor izquierdo; cada hijo que solo existe en el
-/// derecho se coloca detrás del par de su predecesor en el derecho (y detrás de los
-/// hijos eliminados que sigan a ese par).
+/// Pairs the children of two containers of the same kind: objects by key (duplicates in
+/// order of appearance), arrays by index or by [`DiffOptions::array_key`].
+/// Output follows the left container's order; a right-only child goes after the pair of
+/// its right predecessor (and after any removed children following that pair).
 pub fn pair_children<'a>(
     left: &'a Document,
     l: NodeId,
@@ -173,8 +165,7 @@ pub fn pair_children<'a>(
     let left_children: Vec<NodeId> = left.children(l).collect();
     let right_children: Vec<NodeId> = right.children(r).collect();
     let matches = match (left.kind(l), right.kind(r)) {
-        // Caso habitual: las mismas claves en el mismo orden. Se emparejan por posición
-        // sin construir la tabla hash (las repetidas quedan por orden de aparición).
+        // Common case: same keys in the same order. Pair by position and skip the hash map.
         (Some(Kind::Object), Some(Kind::Object))
             if left_children.len() == right_children.len()
                 && left_children
@@ -209,8 +200,6 @@ pub fn pair_children<'a>(
     merge(&left_children, &right_children, &matches)
 }
 
-/// Hash del valor de `key` en cada elemento, o `None` si algún elemento no es un
-/// objeto con esa clave.
 fn element_keys(doc: &Document, elements: &[NodeId], key: &str) -> Option<Vec<u64>> {
     elements
         .iter()
@@ -226,16 +215,15 @@ fn element_keys(doc: &Document, elements: &[NodeId], key: &str) -> Option<Vec<u6
         .collect()
 }
 
-/// Para cada elemento izquierdo, el índice del derecho con la misma clave.
-/// Las claves repetidas se emparejan por orden de aparición.
+/// For each left element, the index of the right one with the same key; duplicates pair
+/// in order of appearance.
 fn match_by<K: Hash + Eq>(
     left: impl Iterator<Item = K>,
     right: impl Iterator<Item = K>,
 ) -> Vec<Option<usize>> {
     const END: usize = usize::MAX;
     let right: Vec<K> = right.collect();
-    // Lista enlazada por clave (cabeza en el mapa, siguientes en `next`) sin una
-    // asignación por clave.
+    // Per-key linked list (head in the map, successors in `next`): no allocation per key.
     let mut head: AHashMap<K, usize> = AHashMap::with_capacity(right.len());
     let mut next = vec![END; right.len()];
     for (j, key) in right.into_iter().enumerate().rev() {
@@ -255,7 +243,6 @@ fn match_by<K: Hash + Eq>(
     .collect()
 }
 
-/// Combina los hijos emparejados en una secuencia alineada.
 fn merge(
     left: &[NodeId],
     right: &[NodeId],
@@ -267,7 +254,7 @@ fn merge(
             *slot = Some(i);
         }
     }
-    // (posición en el izquierdo delante de la que va, índice en el derecho)
+    // (left position to insert before, right index)
     let mut inserts: Vec<(usize, usize)> = Vec::new();
     let mut anchor = 0;
     for (j, from) in matched_from.iter().enumerate() {
@@ -281,7 +268,7 @@ fn merge(
     let mut out = Vec::with_capacity(left.len() + inserts.len());
     let mut pending = inserts.into_iter().peekable();
     for i in 0..=left.len() {
-        // Los eliminados consecutivos van antes que los añadidos en esa posición.
+        // Consecutive removed children come before the added ones at that position.
         let unmatched_left = matches.get(i).is_some_and(Option::is_none);
         while let Some((_, j)) = pending.next_if(|&(position, _)| position <= i && !unmatched_left)
         {
@@ -299,18 +286,17 @@ fn merge(
     out
 }
 
-/// Par pendiente de comparar (o un hijo que solo existe en un lado).
 struct Work {
     left: Option<NodeId>,
     right: Option<NodeId>,
-    /// Entrada de `Differ::paths` del contenedor padre (`NO_PATH` para la raíz).
+    /// Entry in `Differ::paths` for the parent container (`NO_PATH` for the root).
     parent_path: u32,
 }
 
 const NO_PATH: u32 = u32::MAX;
 
-/// Contenedor recorrido, para reconstruir la ruta al evaluar reglas `$...`.
-/// Se guarda el nodo de un solo lado (el izquierdo si existe).
+/// Visited container, used to rebuild the path for `$...` rules. Stores one side's node
+/// (the left if present).
 struct PathEntry {
     parent: u32,
     side: Side,
@@ -330,7 +316,7 @@ struct Differ<'a> {
     result: DiffResult,
     stack: Vec<Work>,
     paths: Vec<PathEntry>,
-    /// Solo se registran rutas si hay reglas de tipo `$...`.
+    /// Paths are only recorded when there are `$...` rules.
     track_paths: bool,
 }
 
@@ -476,7 +462,7 @@ impl Differ<'_> {
         })
     }
 
-    /// Nodos desde el primer nivel bajo la raíz hasta `current` (la raíz no es un segmento).
+    /// Nodes from the first level below the root down to `current` (root is not a segment).
     fn chain(&self, current: (Side, NodeId), parent_path: u32) -> Vec<(Side, NodeId)> {
         let mut chain = vec![current];
         let mut next = parent_path;
@@ -526,7 +512,6 @@ impl Differ<'_> {
         self.result.changes.push(Change { kind, left, right });
     }
 
-    /// Marca como `Contains` los contenedores desde `left`/`right` hasta la raíz.
     fn mark_contains(&mut self, left: Option<NodeId>, right: Option<NodeId>) {
         mark_ancestors(&mut self.result.left_status, self.left, left);
         mark_ancestors(&mut self.result.right_status, self.right, right);
@@ -545,7 +530,7 @@ fn fill_subtree(status: &mut [DiffStatus], doc: &Document, id: NodeId, value: Di
     }
 }
 
-/// Sube desde `current` marcando `Contains`; se detiene en el primero ya marcado.
+/// Walks up from `current` marking `Contains`; stops at the first already marked node.
 fn mark_ancestors(status: &mut [DiffStatus], doc: &Document, mut current: Option<NodeId>) {
     while let Some(id) = current {
         let Some(slot) = status.get_mut(id.index()) else {
@@ -567,7 +552,7 @@ mod tests {
     fn doc(text: &str) -> Document {
         match parse(text, &ParseOptions::default()) {
             Ok(parsed) => parsed.document,
-            Err(e) => panic!("{text:?} debería parsear: {e}"),
+            Err(e) => panic!("{text:?} should parse: {e}"),
         }
     }
 
@@ -577,7 +562,6 @@ mod tests {
         (left, right, result)
     }
 
-    /// Cambios como (tipo, texto izquierdo, texto derecho).
     fn changes(a: &str, b: &str) -> Vec<(ChangeKind, String, String)> {
         let (left, right, result) = run(a, b);
         result
@@ -604,7 +588,7 @@ mod tests {
         assert!(result.is_equal());
         assert_eq!(result.left_status(left.root()), DiffStatus::Equal);
         assert_eq!(result.left_match(left.root()), Some(right.root()));
-        // Subárbol igual: no se recorre.
+        // Equal subtree: not visited.
         let a = left.children(left.root()).next().unwrap_or(left.root());
         assert_eq!(result.left_match(a), None);
     }
@@ -676,7 +660,7 @@ mod tests {
                 change(ChangeKind::Modified, "a", "A"),
             ]
         );
-        // Por índice, la inserción al principio desplaza todos los elementos.
+        // By index, inserting at the start shifts every element.
         assert_eq!(changes(a, b).len(), 7);
     }
 
@@ -692,10 +676,10 @@ mod tests {
 
     #[test]
     fn arrays_by_key_fall_back_to_index() {
-        // Un elemento sin la clave (o que no es objeto) hace que el array use índices.
+        // An element without the key (or not an object) makes the array fall back to indices.
         let a = r#"[{"id": 1}, {"id": 2}]"#;
         let b = r#"[{"id": 2}, {"x": 1}]"#;
-        // 1→2 modificado; "id" eliminado y "x" añadido en el segundo elemento.
+        // 1->2 modified; "id" removed and "x" added in the second element.
         assert_eq!(keyed_changes(a, b).len(), 3);
         assert_eq!(keyed_changes("[1, 2]", "[2, 1]").len(), 2);
     }
@@ -728,7 +712,7 @@ mod tests {
                 change(ChangeKind::TypeChanged, "true", "true"),
             ]
         );
-        // Mismo tipo y distinto valor sigue siendo una modificación.
+        // Same type with a different value is still a modification.
         assert_eq!(
             changes("true", "false"),
             vec![change(ChangeKind::Modified, "true", "false")]
@@ -784,7 +768,7 @@ mod tests {
         assert_eq!(changed_paths(&result, &left, &right), vec!["$.items[0].n"]);
         let updated = left.children(left.root()).next().unwrap_or(left.root());
         assert_eq!(result.left_status(updated), DiffStatus::Ignored);
-        // Solo hay diferencias ignoradas en "x": no se marca como Contains.
+        // "x" only has ignored differences: not marked Contains.
         let x = left.children(left.root()).nth(3).unwrap_or(left.root());
         assert_eq!(result.left_status(x), DiffStatus::Equal);
     }

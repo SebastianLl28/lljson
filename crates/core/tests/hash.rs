@@ -1,4 +1,4 @@
-//! Tests del hash semántico por subárbol.
+//! Semantic subtree hash tests.
 
 use lljson_core::{Document, Mode, ParseOptions, parse};
 
@@ -8,7 +8,7 @@ fn doc(text: &str) -> Document {
     };
     match parse(text, &options) {
         Ok(parsed) => parsed.document,
-        Err(e) => panic!("{text:?} debería parsear: {e}"),
+        Err(e) => panic!("{text:?} should parse: {e}"),
     }
 }
 
@@ -18,15 +18,11 @@ fn root_hash(text: &str) -> u64 {
 }
 
 fn assert_same(a: &str, b: &str) {
-    assert_eq!(root_hash(a), root_hash(b), "{a} debería ser igual a {b}");
+    assert_eq!(root_hash(a), root_hash(b), "{a} should equal {b}");
 }
 
 fn assert_differ(a: &str, b: &str) {
-    assert_ne!(
-        root_hash(a),
-        root_hash(b),
-        "{a} debería ser distinto de {b}"
-    );
+    assert_ne!(root_hash(a), root_hash(b), "{a} should differ from {b}");
 }
 
 #[test]
@@ -49,7 +45,7 @@ fn array_order_matters() {
 fn whitespace_comments_and_trailing_commas_do_not_matter() {
     assert_same(
         r#"{"a":[1,2],"b":"x"}"#,
-        "{\n  // comentario\n  \"a\": [ 1, 2, ],\n  \"b\": \"x\", /* fin */\n}",
+        "{\n  // comment\n  \"a\": [ 1, 2, ],\n  \"b\": \"x\", /* end */\n}",
     );
 }
 
@@ -99,7 +95,7 @@ fn strings_compare_decoded() {
     assert_same(r#""A""#, r#""\u0041""#);
     assert_same(r#""ñ/""#, r#""\u00f1\/""#);
     assert_same(r#""😀""#, r#""\ud83d\ude00""#);
-    assert_same(r#"{"clave": 1}"#, r#"{"cl\u0061ve": 1}"#);
+    assert_same(r#"{"key": 1}"#, r#"{"k\u0065y": 1}"#);
     assert_differ(r#""a""#, r#""A""#);
 }
 

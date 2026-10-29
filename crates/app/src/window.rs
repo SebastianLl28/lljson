@@ -1,6 +1,5 @@
-//! Ventana principal: dos paneles lado a lado. Cada panel se llena abriendo un archivo,
-//! pegando del portapapeles o arrastrando archivos o texto sobre él. Ambos paneles
-//! muestran la misma lista de filas alineadas, que se construye en un hilo de fondo.
+//! Main window: two side-by-side panes sharing one list of aligned rows, which is built
+//! on a background thread.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -21,7 +20,6 @@ use crate::view::{self, Comparison, RowsModel, to_u32};
 const DEFAULT_WIDTH: i32 = 1200;
 const DEFAULT_HEIGHT: i32 = 760;
 
-/// Atajos de las acciones de la ventana.
 pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.open-left", &["<Control>o"]),
     ("win.open-right", &["<Control><Shift>o"]),
@@ -44,13 +42,10 @@ pub struct Window {
     comparison: Rc<RefCell<Comparison>>,
     left_model: RowsModel,
     right_model: RowsModel,
-    /// Identifica la última construcción de filas pedida.
+    /// Id of the latest row-build request; stale results are dropped.
     rows_generation: Cell<u64>,
-    /// Fila de la última diferencia a la que se navegó (para ir a la siguiente o anterior).
     change_cursor: Cell<Option<usize>>,
-    /// Las secciones iguales se muestran colapsadas.
     hide_equal: Cell<bool>,
-    /// Opciones del diff y el texto con el que se escribieron en el diálogo.
     diff_options: RefCell<DiffOptions>,
     options_text: RefCell<OptionsText>,
 }
@@ -122,7 +117,7 @@ impl Window {
         let header = adw::HeaderBar::builder().title_widget(&title).build();
         let menu = gio::Menu::new();
         menu.append(
-            Some("Comparar portapapeles con archivo…"),
+            Some("Compare clipboard with file…"),
             Some("win.compare-clipboard"),
         );
         header.pack_end(
@@ -130,33 +125,33 @@ impl Window {
                 .icon_name("open-menu-symbolic")
                 .menu_model(&menu)
                 .primary(true)
-                .tooltip_text("Menú principal")
+                .tooltip_text("Main menu")
                 .build(),
         );
         header.pack_end(
             &gtk::Button::builder()
                 .icon_name("preferences-system-symbolic")
                 .action_name("win.diff-options")
-                .tooltip_text("Opciones de comparación (Ctrl+,)")
+                .tooltip_text("Comparison options (Ctrl+,)")
                 .build(),
         );
         header.pack_start(
             &gtk::ToggleButton::builder()
                 .icon_name("view-conceal-symbolic")
                 .action_name("win.hide-equal")
-                .tooltip_text("Ocultar secciones iguales (Ctrl+H)")
+                .tooltip_text("Hide equal sections (Ctrl+H)")
                 .build(),
         );
         for (icon, action, tooltip) in [
             (
                 "go-up-symbolic",
                 "win.prev-change",
-                "Diferencia anterior (Mayús+F3)",
+                "Previous difference (Shift+F3)",
             ),
             (
                 "go-down-symbolic",
                 "win.next-change",
-                "Diferencia siguiente (F3)",
+                "Next difference (F3)",
             ),
         ] {
             header.pack_start(
@@ -201,7 +196,6 @@ impl Window {
         }
     }
 
-    /// Conecta las acciones y señales; se llama una vez, ya dentro de un `Rc`.
     fn setup(self: &Rc<Self>) {
         let this = self;
         for side in [Side::Left, Side::Right] {
@@ -224,8 +218,7 @@ impl Window {
         this.update_title();
         this.sync_scroll();
 
-        // Las acciones solo guardan referencias débiles: la ventana de GTK mantiene vivo
-        // este estado hasta que se cierra.
+        // Actions only hold weak references; this keeps the state alive until the window closes.
         let keep_alive = RefCell::new(Some(Rc::clone(this)));
         this.window.connect_close_request(move |_| {
             keep_alive.take();
@@ -233,7 +226,6 @@ impl Window {
         });
     }
 
-    /// Acciones de navegación entre diferencias; desactivadas hasta que haya alguna.
     fn setup_navigation(self: &Rc<Self>) {
         for (name, direction) in [
             ("next-change", Direction::Forward),
@@ -251,7 +243,6 @@ impl Window {
         }
     }
 
-    /// Interruptor «ocultar secciones iguales»: reconstruye las filas en segundo plano.
     fn setup_hide_equal(self: &Rc<Self>) {
         let action = gio::SimpleAction::new_stateful("hide-equal", None, &false.to_variant());
         action.set_enabled(false);
@@ -279,7 +270,6 @@ impl Window {
         self.window.add_action(&action);
     }
 
-    /// Diálogo con la clave de arrays y las rutas a ignorar.
     fn setup_options(self: &Rc<Self>) {
         let action = gio::SimpleAction::new("diff-options", None);
         let weak = Rc::downgrade(self);
@@ -326,8 +316,7 @@ impl Window {
         }
     }
 
-    /// Salta a la diferencia siguiente o anterior (dando la vuelta al llegar al final),
-    /// expande un contenedor colapsado que la contenga y la deja a la vista en ambos paneles.
+    /// Wraps around at the ends and expands a collapsed container holding the difference.
     fn go_to_change(&self, direction: Direction) {
         let found = {
             let comparison = self.comparison.borrow();
@@ -343,7 +332,7 @@ impl Window {
             )
         };
         let Some(stop) = found else {
-            self.toast("No hay diferencias");
+            self.toast("No differences");
             return;
         };
         self.change_cursor.set(Some(stop.position));
@@ -356,26 +345,24 @@ impl Window {
         }
         #[cfg(any(debug_assertions, feature = "devtools"))]
         crate::devtools::trace(&format!(
-            "diferencia en la fila {} (vuelta: {})",
+            "difference at row {} (wrapped: {})",
             stop.position, stop.wrapped
         ));
         self.scroll_to_centered(stop.position);
         if stop.wrapped {
             self.toast(match direction {
-                Direction::Forward => "Última diferencia: vuelve a la primera",
-                Direction::Backward => "Primera diferencia: vuelve a la última",
+                Direction::Forward => "Last difference: wrapping to the first",
+                Direction::Backward => "First difference: wrapping to the last",
             });
         }
     }
 
-    /// Deja la fila `position` más o menos en el centro del panel (el otro panel la sigue).
-    /// `GtkListView` solo sabe llevar una fila al borde más cercano, así que se pide ver
-    /// una fila a media página de distancia, del lado hacia el que hay que moverse.
-    /// Si la fila ya está a la vista no se mueve nada.
+    /// `GtkListView` only scrolls a row to the nearest edge, so ask to reveal a row half a
+    /// page away on the side we move towards. Does nothing if the row is already visible.
     fn scroll_to_centered(&self, position: usize) {
         let adjustment = self.left.scrolled.vadjustment();
         let len = self.comparison.borrow().rows.len().max(1);
-        // Las filas miden lo mismo, así que la altura media da su posición.
+        // All rows have the same height, so the mean height gives a row position.
         let row_height = if adjustment.upper() > 0.0 {
             adjustment.upper() / len as f64
         } else {
@@ -395,8 +382,7 @@ impl Window {
             .scroll_to(to_u32(anchor), gtk::ListScrollFlags::NONE, None);
     }
 
-    /// Sincroniza el scroll vertical de ambos paneles. Las dos listas tienen las mismas
-    /// filas con la misma altura, así que basta con copiar la posición.
+    /// Both lists have identical row heights, so copying the value is enough.
     fn sync_scroll(&self) {
         let syncing = Rc::new(Cell::new(false));
         let left = self.left.scrolled.vadjustment();
@@ -413,7 +399,6 @@ impl Window {
         }
     }
 
-    /// Reconstruye las filas alineadas de los documentos actuales en un hilo de fondo.
     fn rebuild_rows(self: &Rc<Self>) {
         let generation = self.rows_generation.get() + 1;
         self.rows_generation.set(generation);
@@ -423,7 +408,7 @@ impl Window {
         let options = self.diff_options.borrow().clone();
         let (sender, receiver) = async_channel::bounded(1);
         let spawned = std::thread::Builder::new()
-            .name("lljson-filas".to_owned())
+            .name("lljson-rows".to_owned())
             .spawn(move || {
                 let diff = match (left.as_deref(), right.as_deref()) {
                     (Some(l), Some(r)) => Some(diff(l, r, &options)),
@@ -443,7 +428,7 @@ impl Window {
                 });
             });
         if let Err(err) = spawned {
-            self.toast(&format!("No se pudo preparar la vista: {err}"));
+            self.toast(&format!("Could not prepare the view: {err}"));
             return;
         }
         let weak = Rc::downgrade(self);
@@ -462,11 +447,11 @@ impl Window {
                 .diff
                 .as_ref()
                 .map_or(State::Incomplete, |d| State::Compared(d.summary()));
-            // El préstamo termina antes de avisar a los modelos: la vista vuelve a leer
-            // las filas durante `items_changed`.
+            // The borrow ends before notifying the models: the view re-reads rows during
+            // `items_changed`.
             let old = this.comparison.replace(comparison);
-            // Quitar millones de filas con la vista conectada tarda segundos en GTK:
-            // se desconecta el modelo, se cambia el tamaño y se vuelve a conectar.
+            // Removing millions of rows with the view attached takes seconds in GTK:
+            // detach the model, resize it, then reattach.
             for (pane, model) in [
                 (&this.left, &this.left_model),
                 (&this.right, &this.right_model),
@@ -484,12 +469,11 @@ impl Window {
             this.right.show_list();
             #[cfg(any(debug_assertions, feature = "devtools"))]
             crate::devtools::rows_ready(len);
-            // Los documentos anteriores se liberan aquí, después de actualizar la vista.
+            // Free the previous documents only after the view is updated.
             drop(old);
         });
     }
 
-    /// Aplica opciones como si se hubieran escrito en el diálogo (herramientas de desarrollo).
     #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn set_options_text(self: &Rc<Self>, text: OptionsText) {
         match options::parse(&text) {
@@ -502,13 +486,12 @@ impl Window {
         }
     }
 
-    /// Ajuste vertical del panel izquierdo (herramientas de desarrollo).
     #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn left_vadjustment(&self) -> gtk::Adjustment {
         self.left.scrolled.vadjustment()
     }
 
-    /// Documento y celda que muestra la fila `position` de un lado (`None` si es relleno).
+    /// `None` for filler rows.
     fn node_at(&self, side: Side, position: u32) -> Option<(RowCell, Arc<Document>)> {
         let comparison = self.comparison.borrow();
         let cell = comparison.cell(side, position as usize)?;
@@ -519,7 +502,6 @@ impl Window {
         Some((cell, doc))
     }
 
-    /// Copia la ruta o el valor del nodo de una fila y avisa con un toast.
     pub fn copy_node(self: &Rc<Self>, side: Side, position: u32, what: Copy) {
         let Some((cell, doc)) = self.node_at(side, position) else {
             return;
@@ -533,7 +515,6 @@ impl Window {
         nodecopy::copy(&self.window.clipboard(), &doc, cell.node, what, &notify);
     }
 
-    /// Menú de clic derecho de una fila: copiar la ruta o el valor de su nodo.
     pub fn show_node_menu(
         self: &Rc<Self>,
         side: Side,
@@ -542,7 +523,7 @@ impl Window {
         x: f64,
         y: f64,
     ) {
-        // Una fila de relleno no tiene nodo en este lado.
+        // A filler row has no node on this side.
         if self.node_at(side, position).is_none() {
             return;
         }
@@ -554,13 +535,11 @@ impl Window {
         });
     }
 
-    /// Lista del panel `side` (herramientas de desarrollo).
     #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn list(&self, side: Side) -> gtk::ListView {
         self.pane(side).list.clone()
     }
 
-    /// Expande o colapsa la fila `position` en ambos paneles.
     pub fn toggle(&self, position: u32) {
         let (splice, len) = {
             let mut comparison = self.comparison.borrow_mut();
@@ -579,7 +558,6 @@ impl Window {
         }
     }
 
-    /// Carga un documento en un panel (en segundo plano).
     pub fn load(&self, side: Side, input: Input) {
         self.pane(side).load(input);
     }
@@ -591,7 +569,6 @@ impl Window {
         }
     }
 
-    /// Formatear, minificar y ordenar claves el documento de un panel.
     fn setup_transforms(self: &Rc<Self>, side: Side) {
         let format = gio::SimpleAction::new(
             &format!("format-{}", side.name()),
@@ -639,13 +616,12 @@ impl Window {
                 &this.window.clipboard(),
                 &notify,
                 move || nodecopy::document_text(&doc),
-                "Texto del documento copiado",
+                "Document text copied",
             );
         });
         self.window.add_action(&action);
     }
 
-    /// Las transformaciones solo están disponibles si el panel tiene un documento.
     fn update_transform_actions(&self) {
         for side in [Side::Left, Side::Right] {
             let enabled = self.pane(side).document().is_some();
@@ -661,9 +637,8 @@ impl Window {
         }
     }
 
-    /// Reemplaza el texto del documento de un panel por su versión transformada. El texto
-    /// se genera en un hilo de fondo y se vuelve a cargar por el camino normal. Si mientras
-    /// tanto el panel recibió otro documento, el resultado se descarta.
+    /// The text is generated on a background thread and reloaded normally; the result is
+    /// dropped if the pane received another document meanwhile.
     pub fn transform(self: &Rc<Self>, side: Side, transform: Transform) {
         let pane = Rc::clone(self.pane(side));
         let Some(doc) = pane.document() else {
@@ -673,12 +648,12 @@ impl Window {
         let (sender, receiver) = async_channel::bounded(1);
         let worker = Arc::clone(&doc);
         let spawned = std::thread::Builder::new()
-            .name("lljson-formato".to_owned())
+            .name("lljson-format".to_owned())
             .spawn(move || {
                 let _ = sender.send_blocking(transform.apply(&worker));
             });
         if let Err(err) = spawned {
-            self.toast(&format!("No se pudo ejecutar la operación: {err}"));
+            self.toast(&format!("Could not run the operation: {err}"));
             return;
         }
         let weak = Rc::downgrade(self);
@@ -723,7 +698,6 @@ impl Window {
         self.choose_file(move |this, file| this.load_file(side, &file));
     }
 
-    /// Pide un archivo con el selector y llama a `on_file` si el usuario elige uno.
     fn choose_file(self: &Rc<Self>, on_file: impl FnOnce(&Rc<Window>, gio::File) + 'static) {
         let json = gtk::FileFilter::new();
         json.set_name(Some("JSON"));
@@ -731,13 +705,13 @@ impl Window {
         json.add_suffix("json");
         json.add_suffix("jsonc");
         let all = gtk::FileFilter::new();
-        all.set_name(Some("Todos los archivos"));
+        all.set_name(Some("All files"));
         all.add_pattern("*");
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&json);
         filters.append(&all);
         let dialog = gtk::FileDialog::builder()
-            .title("Abrir JSON")
+            .title("Open JSON")
             .modal(true)
             .filters(&filters)
             .default_filter(&json)
@@ -753,20 +727,18 @@ impl Window {
             match result {
                 Ok(file) => on_file(&this, file),
                 Err(err) if err.matches(gtk::DialogError::Dismissed) => {}
-                Err(err) => this.toast(&format!("No se pudo abrir el archivo: {err}")),
+                Err(err) => this.toast(&format!("Could not open the file: {err}")),
             }
         });
     }
 
-    /// Compara el texto del portapapeles (a la derecha) con un archivo (a la izquierda).
-    /// El portapapeles se lee antes de abrir el selector para avisar enseguida si no hay texto.
+    /// The clipboard is read before opening the chooser to report missing text right away.
     fn compare_clipboard_with_file(self: &Rc<Self>) {
         self.read_clipboard(|this, text| {
             this.choose_file(move |this, file| this.compare_text_with_file(text, &file));
         });
     }
 
-    /// Lee el texto del portapapeles y se lo da a `then`; si no hay texto, avisa.
     fn read_clipboard(self: &Rc<Self>, then: impl FnOnce(&Rc<Window>, String) + 'static) {
         let clipboard = self.window.clipboard();
         let weak = Rc::downgrade(self);
@@ -777,8 +749,8 @@ impl Window {
             };
             match result {
                 Ok(Some(text)) => then(&this, text.into()),
-                Ok(None) => this.toast("El portapapeles no contiene texto"),
-                Err(err) => this.toast(&format!("No se pudo leer el portapapeles: {err}")),
+                Ok(None) => this.toast("The clipboard contains no text"),
+                Err(err) => this.toast(&format!("Could not read the clipboard: {err}")),
             }
         });
     }
@@ -788,14 +760,12 @@ impl Window {
         self.load(
             Side::Right,
             Input::Text {
-                name: "Portapapeles".to_owned(),
+                name: "Clipboard".to_owned(),
                 text,
             },
         );
     }
 
-    /// Como «comparar portapapeles con archivo» pero con el archivo ya elegido
-    /// (herramientas de desarrollo).
     #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn compare_clipboard_with_path(self: &Rc<Self>, path: &std::path::Path) {
         let file = gio::File::for_path(path);
@@ -805,7 +775,7 @@ impl Window {
     fn load_file(&self, side: Side, file: &gio::File) {
         match file.path() {
             Some(path) => self.load(side, Input::File(path)),
-            None => self.toast("Solo se pueden abrir archivos locales"),
+            None => self.toast("Only local files can be opened"),
         }
     }
 
@@ -821,17 +791,17 @@ impl Window {
                 Ok(Some(text)) => this.load(
                     side,
                     Input::Text {
-                        name: "Portapapeles".to_owned(),
+                        name: "Clipboard".to_owned(),
                         text: text.into(),
                     },
                 ),
-                Ok(None) => this.toast("El portapapeles no contiene texto"),
-                Err(err) => this.toast(&format!("No se pudo leer el portapapeles: {err}")),
+                Ok(None) => this.toast("The clipboard contains no text"),
+                Err(err) => this.toast(&format!("Could not read the clipboard: {err}")),
             }
         });
     }
 
-    /// Acepta archivos o texto. Si se sueltan dos archivos, el segundo va al otro panel.
+    /// Two dropped files go to both panes: the second one to the other pane.
     fn setup_drop(self: &Rc<Self>, side: Side) {
         let target = gtk::DropTarget::new(glib::Type::INVALID, gdk::DragAction::COPY);
         target.set_types(&[gdk::FileList::static_type(), String::static_type()]);
@@ -853,7 +823,7 @@ impl Window {
                     self.load_file(side, first);
                     self.load_file(side.other(), second);
                     if !rest.is_empty() {
-                        self.toast("Solo se comparan los dos primeros archivos");
+                        self.toast("Only the first two files are compared");
                     }
                 }
             }
@@ -862,7 +832,7 @@ impl Window {
             self.load(
                 side,
                 Input::Text {
-                    name: "Texto arrastrado".to_owned(),
+                    name: "Dropped text".to_owned(),
                     text,
                 },
             );
@@ -876,7 +846,6 @@ impl Window {
         self.toasts.add_toast(adw::Toast::new(message));
     }
 
-    /// Subtítulo con los nombres de ambos documentos.
     fn update_title(&self) {
         let subtitle = format!(
             "{} ↔ {}",
@@ -887,8 +856,7 @@ impl Window {
     }
 }
 
-/// Nueva posición de una fila tras un expandir o colapsar: las filas que desaparecen
-/// pasan a apuntar a la fila que se expandió o colapsó.
+/// Rows that disappear in a splice end up pointing at the toggled row.
 fn shift_cursor(cursor: usize, splice: Splice) -> usize {
     if cursor < splice.position + splice.removed.min(1) {
         cursor

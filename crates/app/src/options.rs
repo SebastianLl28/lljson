@@ -1,20 +1,19 @@
-//! Opciones de comparación: clave para emparejar los elementos de los arrays y reglas
-//! para ignorar claves o rutas. El diálogo es solo la capa de GTK sobre [`parse`].
+//! Compare options: array matching key and ignore rules. The dialog is a thin GTK
+//! layer over [`parse`].
 
 use std::rc::Rc;
 
 use adw::prelude::*;
 use lljson_core::{DiffOptions, IgnoreRule};
 
-/// Lo que el usuario escribió en el diálogo (se conserva para volver a mostrarlo tal cual).
+/// Raw dialog text, kept so the dialog can be reshown as typed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OptionsText {
     pub array_key: String,
     pub ignore: String,
 }
 
-/// Interpreta el texto del diálogo. Devuelve todos los errores a la vez, uno por línea
-/// inválida, para que el usuario pueda corregirlos de una vez.
+/// Returns every error at once (one per invalid line) so they can be fixed together.
 pub fn parse(text: &OptionsText) -> Result<DiffOptions, Vec<String>> {
     let array_key = text.array_key.trim();
     let mut ignore = Vec::new();
@@ -25,7 +24,7 @@ pub fn parse(text: &OptionsText) -> Result<DiffOptions, Vec<String>> {
         }
         match IgnoreRule::parse(line) {
             Ok(rule) => ignore.push(rule),
-            Err(err) => errors.push(format!("Línea {}: {err}", index + 1)),
+            Err(err) => errors.push(format!("Line {}: {err}", index + 1)),
         }
     }
     if !errors.is_empty() {
@@ -37,21 +36,20 @@ pub fn parse(text: &OptionsText) -> Result<DiffOptions, Vec<String>> {
     })
 }
 
-/// Muestra el diálogo con `current` y llama a `on_apply` con las opciones válidas.
 pub fn present(
     parent: &impl IsA<gtk::Widget>,
     current: &OptionsText,
     on_apply: impl Fn(OptionsText, DiffOptions) + 'static,
 ) {
     let key_row = adw::EntryRow::builder()
-        .title("Clave de los elementos de arrays (p. ej. id)")
+        .title("Array element key (e.g. id)")
         .text(&current.array_key)
         .build();
     let keys = adw::PreferencesGroup::builder()
         .title("Arrays")
         .description(
-            "Empareja los elementos por esta clave en lugar de por posición. \
-             Vacío: por posición.",
+            "Match elements by this key instead of by position. \
+             Empty: match by position.",
         )
         .build();
     keys.add(&key_row);
@@ -71,10 +69,10 @@ pub fn present(
         .css_classes(["card", "options-rules"])
         .build();
     let ignore = adw::PreferencesGroup::builder()
-        .title("Ignorar")
+        .title("Ignore")
         .description(
-            "Una regla por línea: una clave a cualquier profundidad (timestamp) \
-             o una ruta ($.users[*].updatedAt).",
+            "One rule per line: a key at any depth (timestamp) \
+             or a path ($.users[*].updatedAt).",
         )
         .build();
     ignore.add(&scrolled);
@@ -93,7 +91,7 @@ pub fn present(
     page.add(&error_group);
 
     let apply = gtk::Button::builder()
-        .label("Aplicar")
+        .label("Apply")
         .css_classes(["suggested-action"])
         .build();
     let header = adw::HeaderBar::new();
@@ -102,7 +100,7 @@ pub fn present(
     view.add_top_bar(&header);
     view.set_content(Some(&page));
     let dialog = adw::Dialog::builder()
-        .title("Opciones de comparación")
+        .title("Compare options")
         .content_width(480)
         .content_height(560)
         .child(&view)
@@ -153,10 +151,10 @@ mod tests {
 
     #[test]
     fn empty_text_gives_default_options() {
-        let options = parse(&text("", "")).expect("válido");
+        let options = parse(&text("", "")).expect("valid");
         assert_eq!(options.array_key, None);
         assert!(options.ignore.is_empty());
-        let options = parse(&text("   ", "\n  \n")).expect("válido");
+        let options = parse(&text("   ", "\n  \n")).expect("valid");
         assert_eq!(options.array_key, None);
         assert!(options.ignore.is_empty());
     }
@@ -164,7 +162,7 @@ mod tests {
     #[test]
     fn trims_the_key_and_parses_keys_and_paths() {
         let options =
-            parse(&text(" id ", "timestamp\n  $.users[*].updatedAt \n\n")).expect("válido");
+            parse(&text(" id ", "timestamp\n  $.users[*].updatedAt \n\n")).expect("valid");
         assert_eq!(options.array_key.as_deref(), Some("id"));
         assert_eq!(options.ignore.len(), 2);
         assert_eq!(options.ignore[0], IgnoreRule::Key("timestamp".to_owned()));
@@ -173,9 +171,9 @@ mod tests {
 
     #[test]
     fn reports_every_invalid_line_with_its_number() {
-        let errors = parse(&text("id", "ok\n$.a[\n\n$..b[x]")).expect_err("inválido");
+        let errors = parse(&text("id", "ok\n$.a[\n\n$..b[x]")).expect_err("invalid");
         assert_eq!(errors.len(), 2, "{errors:?}");
-        assert!(errors[0].starts_with("Línea 2:"), "{errors:?}");
-        assert!(errors[1].starts_with("Línea 4:"), "{errors:?}");
+        assert!(errors[0].starts_with("Line 2:"), "{errors:?}");
+        assert!(errors[1].starts_with("Line 4:"), "{errors:?}");
     }
 }

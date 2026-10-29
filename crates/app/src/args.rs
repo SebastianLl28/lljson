@@ -1,4 +1,4 @@
-//! Argumentos de terminal: `lljson [IZQUIERDO] [DERECHO]`, con `-` para stdin.
+//! Command-line arguments: `lljson [LEFT] [RIGHT]`, with `-` for stdin.
 
 use std::path::PathBuf;
 
@@ -7,24 +7,21 @@ use clap::Parser;
 use crate::loader::Input;
 
 #[derive(Debug, Parser)]
-#[command(name = "lljson", version, about = "Compara y formatea JSON")]
+#[command(name = "lljson", version, about = "Compare and format JSON")]
 pub struct Args {
-    /// Documento del panel izquierdo (`-` para la entrada estándar).
-    #[arg(value_name = "IZQUIERDO")]
+    /// Left pane document (`-` for standard input)
+    #[arg(value_name = "LEFT")]
     pub left: Option<PathBuf>,
-    /// Documento del panel derecho (`-` para la entrada estándar).
-    #[arg(value_name = "DERECHO")]
+    /// Right pane document (`-` for standard input)
+    #[arg(value_name = "RIGHT")]
     pub right: Option<PathBuf>,
 }
 
 impl Args {
-    /// Documentos a cargar en cada panel. Falla si los dos piden la entrada estándar.
     pub fn into_inputs(self) -> Result<(Option<Input>, Option<Input>), String> {
         let is_stdin = |p: &Option<PathBuf>| p.as_deref() == Some("-".as_ref());
         if is_stdin(&self.left) && is_stdin(&self.right) {
-            return Err(
-                "solo uno de los dos documentos puede leerse de la entrada estándar".into(),
-            );
+            return Err("only one of the two documents can be read from standard input".into());
         }
         Ok((self.left.map(input), self.right.map(input)))
     }
@@ -50,30 +47,30 @@ mod tests {
 
     #[test]
     fn no_arguments() {
-        let (left, right) = inputs(&[]).expect("válido");
+        let (left, right) = inputs(&[]).expect("valid");
         assert!(left.is_none() && right.is_none());
     }
 
     #[test]
     fn two_files() {
-        let (left, right) = inputs(&["a.json", "b.json"]).expect("válido");
+        let (left, right) = inputs(&["a.json", "b.json"]).expect("valid");
         assert!(matches!(left, Some(Input::File(p)) if p.as_os_str() == "a.json"));
         assert!(matches!(right, Some(Input::File(p)) if p.as_os_str() == "b.json"));
     }
 
     #[test]
     fn one_file() {
-        let (left, right) = inputs(&["a.json"]).expect("válido");
+        let (left, right) = inputs(&["a.json"]).expect("valid");
         assert!(matches!(left, Some(Input::File(_))));
         assert!(right.is_none());
     }
 
     #[test]
     fn stdin_on_either_side() {
-        let (left, right) = inputs(&["-", "b.json"]).expect("válido");
+        let (left, right) = inputs(&["-", "b.json"]).expect("valid");
         assert!(matches!(left, Some(Input::Stdin)));
         assert!(matches!(right, Some(Input::File(_))));
-        let (_, right) = inputs(&["a.json", "-"]).expect("válido");
+        let (_, right) = inputs(&["a.json", "-"]).expect("valid");
         assert!(matches!(right, Some(Input::Stdin)));
     }
 

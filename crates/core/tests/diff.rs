@@ -1,4 +1,4 @@
-//! Tests de integración del motor de diff.
+//! Integration tests for the diff engine.
 
 use lljson_core::{
     ChangeKind, DiffOptions, DiffResult, DiffStatus, Document, IgnoreRule, Mode, NodeId,
@@ -12,7 +12,7 @@ fn doc(text: &str) -> Document {
     };
     match parse(text, &options) {
         Ok(parsed) => parsed.document,
-        Err(e) => panic!("{text:?} debería parsear: {e}"),
+        Err(e) => panic!("{text:?} should parse: {e}"),
     }
 }
 
@@ -29,7 +29,7 @@ fn sample() -> Value {
     })
 }
 
-/// Comprueba la coherencia entre la lista de cambios y los estados de los nodos.
+/// Checks that the change list and the node statuses agree.
 fn check_consistency(left: &Document, right: &Document, result: &DiffResult) {
     for change in result.changes() {
         let (l_status, r_status) = match change.kind {
@@ -75,7 +75,7 @@ fn check_ancestors(doc: &Document, id: NodeId, status: impl Fn(NodeId) -> DiffSt
     }
 }
 
-/// Aplica `mutate` a una copia de `sample()` y devuelve las rutas cambiadas.
+/// Applies `mutate` to a copy of `sample()` and returns the changed paths.
 fn diff_after(mutate: impl FnOnce(&mut Value), options: &DiffOptions) -> Vec<(ChangeKind, String)> {
     let original = sample();
     let mut changed = original.clone();
@@ -116,7 +116,7 @@ fn identical_and_reformatted_documents_are_equal() {
             {"id": 2, "name": "Luis", "roles": [], "active": false, "score": null},
             {"id": 3, "name": "Eva", "roles": ["dev", "ops",], "active": true, "score": 7e0},
         ],
-        // comentario
+        // comment
         "meta": {"tags": ["a", "b"], "updatedAt": "2026-10-28"}, "version": 3}"#;
     let (left, right) = (doc(&text), doc(reordered));
     let result = diff(&left, &right, &DiffOptions::default());
@@ -150,7 +150,7 @@ fn single_mutations_are_reported_at_the_right_path() {
             Box::new(|v: &mut Value| {
                 if let Some(obj) = v.pointer_mut("/meta").and_then(Value::as_object_mut) {
                     obj.remove("tags");
-                    obj.insert("author".into(), json!("yo"));
+                    obj.insert("author".into(), json!("me"));
                 }
             }),
             vec![
@@ -204,7 +204,7 @@ fn keyed_arrays_and_ignore_rules_together() {
         |v| {
             if let Some(users) = v.pointer_mut("/users").and_then(Value::as_array_mut) {
                 users.reverse();
-                users.insert(0, json!({"id": 4, "name": "Nuevo"}));
+                users.insert(0, json!({"id": 4, "name": "New"}));
             }
             if let Some(slot) = v.pointer_mut("/meta/updatedAt") {
                 *slot = json!("2026-10-29");
@@ -218,7 +218,7 @@ fn keyed_arrays_and_ignore_rules_together() {
     assert_eq!(changes, vec![(ChangeKind::Added, "$.users[0]".to_owned())]);
 }
 
-/// Array de registros (~12 nodos cada uno).
+/// Array of records (~12 nodes each).
 fn big(records: usize, modify: &[usize]) -> String {
     let mut out = String::from("[");
     for i in 0..records {
@@ -226,7 +226,7 @@ fn big(records: usize, modify: &[usize]) -> String {
             out.push(',');
         }
         let name = if modify.contains(&i) {
-            format!("cambiado_{i}")
+            format!("changed_{i}")
         } else {
             format!("u{i}")
         };

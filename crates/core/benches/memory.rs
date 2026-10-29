@@ -1,9 +1,8 @@
-//! Memoria con dos documentos de ~1 millón de nodos cargados y comparados.
+//! Memory with two ~1 million node documents loaded and compared.
 //!
-//! criterion solo mide tiempo, así que este benchmark (sin harness) mide el RSS del proceso
-//! leyendo `/proc/self/status` (solo Linux) en cada etapa: abrir los archivos con `memmap2`,
-//! parsear y hacer el diff. Muestra también el tamaño teórico de cada estructura.
-//! Ejecutar con `cargo bench -p lljson-core --bench memory`.
+//! criterion only measures time, so this harness-less benchmark reads the process RSS from
+//! `/proc/self/status` (Linux only) at each stage: mmap, parse, diff. Also prints the
+//! theoretical size of each structure. Run with `cargo bench -p lljson-core --bench memory`.
 
 use std::path::{Path, PathBuf};
 
@@ -14,7 +13,7 @@ use lljson_core::{
 
 const MIB: f64 = 1024.0 * 1024.0;
 
-/// Valor en KiB de un campo de `/proc/self/status` (p. ej. `VmRSS`, `VmHWM`).
+/// Value in KiB of a `/proc/self/status` field (e.g. `VmRSS`, `VmHWM`).
 fn status_kib(field: &str) -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     status
@@ -32,27 +31,27 @@ fn write_document(dir: &Path, name: &str, changes: Changes) -> PathBuf {
         changes,
         ..GenerateOptions::default()
     };
-    let text = generate(&options).expect("generar el documento");
+    let text = generate(&options).expect("generate the document");
     let path = dir.join(name);
-    std::fs::write(&path, text).expect("escribir el documento");
+    std::fs::write(&path, text).expect("write the document");
     path
 }
 
 fn load(path: &Path) -> Document {
-    let source = Source::from_file(path).expect("abrir el documento");
+    let source = Source::from_file(path).expect("open the document");
     match parse(source, &ParseOptions::default()) {
         Ok(parsed) => parsed.document,
-        Err(e) => panic!("el JSON generado debería ser válido: {e}"),
+        Err(e) => panic!("generated JSON should be valid: {e}"),
     }
 }
 
 fn main() {
-    // `cargo test --benches` ejecuta los benchmarks en modo prueba: aquí no hay nada que probar.
+    // `cargo test --benches` runs benchmarks in test mode; nothing to test here.
     if std::env::args().any(|arg| arg == "--test") {
         return;
     }
     let dir = std::env::temp_dir().join(format!("lljson-memory-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("crear directorio temporal");
+    std::fs::create_dir_all(&dir).expect("create temp directory");
     let left_path = write_document(&dir, "a.json", Changes::default());
     let right_path = write_document(
         &dir,
@@ -63,7 +62,7 @@ fn main() {
         },
     );
 
-    // Reinicia el pico (`VmHWM`) para no contar la generación de los archivos.
+    // Reset the peak (`VmHWM`) so file generation is not counted.
     let _ = std::fs::write("/proc/self/clear_refs", "5");
     let start = rss_mib();
     let left = load(&left_path);
@@ -76,20 +75,20 @@ fn main() {
     let source = (left.source_bytes().len() + right.source_bytes().len()) as f64 / MIB;
     let nodes = left.node_count() + right.node_count();
     let arena = (nodes * size_of::<Node>()) as f64 / MIB;
-    println!("documentos: 2 × {} nodos", left.node_count());
-    println!("teórico: texto {source:.1} MiB (mmap) + arena {arena:.1} MiB");
-    println!("  tamaño de Node: {} bytes", size_of::<Node>());
-    println!("RSS inicial:        {start:8.1} MiB");
+    println!("documents: 2 x {} nodes", left.node_count());
+    println!("theoretical: text {source:.1} MiB (mmap) + arena {arena:.1} MiB");
+    println!("  Node size: {} bytes", size_of::<Node>());
+    println!("RSS initial:        {start:8.1} MiB");
     println!(
-        "RSS tras parsear:   {parsed:8.1} MiB (+{:.1})",
+        "RSS after parse:   {parsed:8.1} MiB (+{:.1})",
         parsed - start
     );
     println!(
-        "RSS tras el diff:   {diffed:8.1} MiB (+{:.1})",
+        "RSS after diff:    {diffed:8.1} MiB (+{:.1})",
         diffed - parsed
     );
-    println!("pico desde el inicio: {peak:6.1} MiB");
-    println!("cambios: {:?}", result.summary());
+    println!("peak since start: {peak:6.1} MiB");
+    println!("changes: {:?}", result.summary());
 
     let _ = std::fs::remove_dir_all(dir);
 }

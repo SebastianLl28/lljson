@@ -1,9 +1,8 @@
-//! Hash semántico por subárbol (xxh3). Dos valores JSON iguales tienen el mismo hash:
-//! - el orden de las claves de un objeto no influye;
-//! - el orden de los elementos de un array sí;
-//! - los strings se comparan decodificados (`"\u0041"` == `"A"`);
-//! - los números se comparan por valor decimal exacto (`1` == `1.0` == `10e-1`);
-//! - el tipo forma parte del hash (`"1"` != `1`).
+//! Semantic per-subtree hash (xxh3). Equal JSON values hash equal:
+//! - object key order is irrelevant; array element order is not;
+//! - strings are compared decoded (`"\u0041"` == `"A"`);
+//! - numbers are compared by exact decimal value (`1` == `1.0` == `10e-1`);
+//! - the type is part of the hash (`"1"` != `1`).
 
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
@@ -24,23 +23,21 @@ pub(crate) fn boolean(value: bool) -> u64 {
     xxh3_64_with_seed(&[], if value { TAG_TRUE } else { TAG_FALSE })
 }
 
-/// Hash de un string ya decodificado.
 pub(crate) fn string(decoded: &[u8]) -> u64 {
     xxh3_64_with_seed(decoded, TAG_STRING)
 }
 
-/// Hash de un literal numérico válido. `scratch` es un buffer reutilizable.
+/// `scratch` is a reusable buffer.
 pub(crate) fn number(raw: &[u8], scratch: &mut Vec<u8>) -> u64 {
     canonical_number(raw, scratch);
     xxh3_64_with_seed(scratch, TAG_NUMBER)
 }
 
-/// Valor inicial del acumulador de un array.
 pub(crate) fn array_start() -> u64 {
     TAG_ARRAY
 }
 
-/// Añade el siguiente elemento al acumulador de un array (depende del orden).
+/// Order-dependent.
 pub(crate) fn array_push(acc: u64, child: u64) -> u64 {
     xxh3_64_with_seed(&child.to_le_bytes(), acc)
 }
@@ -49,7 +46,7 @@ pub(crate) fn array_finish(acc: u64, count: u32) -> u64 {
     xxh3_64_with_seed(&count.to_le_bytes(), acc)
 }
 
-/// Hash de un miembro `clave: valor`. Los miembros se suman, así que el orden no influye.
+/// Members are summed by the caller, so their order does not matter.
 pub(crate) fn member(decoded_key: &[u8], child: u64) -> u64 {
     xxh3_64_with_seed(decoded_key, child ^ TAG_MEMBER)
 }
@@ -61,10 +58,10 @@ pub(crate) fn object_finish(members_sum: u64, count: u32) -> u64 {
     xxh3_64_with_seed(&bytes, TAG_OBJECT)
 }
 
-/// Escribe en `out` la forma canónica de un literal numérico JSON válido:
-/// valor = ±0.d₁d₂…dₙ × 10^punto, sin ceros a la izquierda ni a la derecha.
-/// Formato: `[signo][punto: i64 LE][dígitos]`; el cero es siempre `[0]` (`-0` == `0`).
-/// Exponentes enormes se saturan a los límites de `i64`.
+/// Writes the canonical form of a valid JSON number literal:
+/// value = ±0.d1d2…dn × 10^point, without leading or trailing zeros.
+/// Layout: `[sign][point: i64 LE][digits]`; zero is always `[0]` (`-0` == `0`).
+/// Huge exponents saturate to the `i64` limits.
 pub(crate) fn canonical_number(raw: &[u8], out: &mut Vec<u8>) {
     out.clear();
     let (negative, rest) = match raw.split_first() {

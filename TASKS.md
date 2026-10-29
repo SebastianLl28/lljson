@@ -1,84 +1,84 @@
-# TASKS.md — Plan de trabajo de lljson
+# TASKS.md — lljson work plan
 
-Marca cada tarea con `[x]` al completarla (build, test y clippy en verde + commit).
-No se avanza de fase sin confirmación.
+Mark each task with `[x]` when completed (build, test and clippy green + commit).
+Do not advance to the next phase without confirmation.
 
-## Fase 0 — Preparación
-- [x] Verificar/instalar dependencias del sistema: toolchain de Rust ≥ 1.92 (rustup),
-      gtk4 y libadwaita de desarrollo, pkgconf. Detectar la distribución y darme el comando.
-- [x] Crear workspace de Cargo con los crates `core`, `cli` y `app` (edición 2024,
-      `[workspace.dependencies]` con las versiones de SPEC.md, `.gitignore`, `Cargo.lock` versionado).
-- [x] App "hola mundo" con libadwaita que abra una ventana (confirmar que todo compila).
+## Phase 0 — Setup
+- [x] Verify/install system dependencies: Rust toolchain ≥ 1.92 (rustup),
+      gtk4 and libadwaita development packages, pkgconf. Detect the distribution and give me the command.
+- [x] Create the Cargo workspace with the `core`, `cli` and `app` crates (edition 2024,
+      `[workspace.dependencies]` with the versions from SPEC.md, `.gitignore`, versioned `Cargo.lock`).
+- [x] "Hello world" libadwaita app that opens a window (confirm that everything compiles).
 
-## Fase 1 — Núcleo: parser y árbol
-- [x] Estructura de árbol en arena (`Vec<Node>`, índices `u32`, strings como rangos).
-- [x] Parser estricto.
-- [x] Modo tolerante (comas finales, comentarios `//` y `/* */`) y opción "autocorregir".
-- [x] Errores con línea y columna.
-- [x] Elegir estrategia de parseo (serde_json / simd-json / propio) con benchmark preliminar.
-- [x] Tests unitarios con casos normales y extremos (vacíos, anidamiento profundo,
-      unicode y escapes, números grandes, archivos truncados).
+## Phase 1 — Core: parser and tree
+- [x] Arena tree structure (`Vec<Node>`, `u32` indices, strings as ranges).
+- [x] Strict parser.
+- [x] Tolerant mode (trailing commas, `//` and `/* */` comments) and "auto-fix" option.
+- [x] Errors with line and column.
+- [x] Choose the parsing strategy (serde_json / simd-json / custom) with a preliminary benchmark.
+- [x] Unit tests with normal and edge cases (empty, deep nesting,
+      unicode and escapes, large numbers, truncated files).
 
-## Fase 2 — Hash y formateador
-- [x] Hash por subárbol (xxh3) durante el parseo, independiente del orden de claves.
-- [x] Formatear (indentación configurable).
-- [x] Minificar.
-- [x] Ordenar claves.
+## Phase 2 — Hash and formatter
+- [x] Per-subtree hash (xxh3) during parsing, independent of key order.
+- [x] Format (configurable indentation).
+- [x] Minify.
+- [x] Sort keys.
 - [x] Tests.
 
-## Fase 3 — Motor de diff
-- [x] Diff semántico usando hashes para saltar subárboles iguales.
-- [x] Arrays por índice y por clave configurable.
-- [x] Detección de cambio de tipo.
-- [x] Ignorar rutas.
-- [x] Resultado del diff con resumen (añadidos/eliminados/modificados).
+## Phase 3 — Diff engine
+- [x] Semantic diff using hashes to skip equal subtrees.
+- [x] Arrays by index and by configurable key.
+- [x] Type change detection.
+- [x] Ignore paths.
+- [x] Diff result with summary (added/removed/modified).
 - [x] Tests.
 
-## Fase 4 — CLI y benchmarks
-- [x] CLI: `lljson-cli diff a.json b.json`, `format`, `minify`, soporte de stdin (`-`).
-- [x] Generador de JSON de prueba (1 millón de nodos, con variantes con pocos cambios).
-- [x] Benchmarks con criterion (parseo, hash, diff, formateo, memoria).
-- [x] Reportar resultados contra las metas de rendimiento.
+## Phase 4 — CLI and benchmarks
+- [x] CLI: `lljson-cli diff a.json b.json`, `format`, `minify`, stdin support (`-`).
+- [x] Test JSON generator (1 million nodes, with few-changes variants).
+- [x] Benchmarks with criterion (parsing, hash, diff, formatting, memory).
+- [x] Report results against the performance goals.
 
-## Fase 5 — App: estructura
-- [x] Ventana libadwaita con dos paneles lado a lado.
-- [x] Abrir archivos, pegar, arrastrar y soltar.
-- [x] Argumentos de terminal (`lljson a.json b.json`, `-` para stdin).
-- [x] Parseo en hilo de fondo con indicador de progreso (> ~150 ms).
+## Phase 5 — App: structure
+- [x] libadwaita window with two side-by-side panes.
+- [x] Open files, paste, drag and drop.
+- [x] Terminal arguments (`lljson a.json b.json`, `-` for stdin).
+- [x] Parsing on a background thread with a progress indicator (> ~150 ms).
 
-## Fase 6 — App: vista virtualizada
-- [x] Lista plana de filas + `GListModel` propio + `GtkListView`.
-- [x] Colores de sintaxis.
-- [x] Expandir/colapsar (modificando solo la lista plana).
-- [x] Scroll sincronizado y filas alineadas entre paneles.
-- [x] Probar con el archivo de 1 millón de nodos (fluidez y memoria).
+## Phase 6 — App: virtualized view
+- [x] Flat list of rows + custom `GListModel` + `GtkListView`.
+- [x] Syntax colors.
+- [x] Expand/collapse (modifying only the flat list).
+- [x] Synchronized scrolling and aligned rows between panes.
+- [x] Test with the 1-million-node file (smoothness and memory).
 
-## Fase 7 — App: diff visual
-- [x] Colores del diff por valor.
-- [x] Barra resumen.
-- [x] Navegación siguiente/anterior diferencia con atajos.
-- [x] Colapsar secciones iguales.
+## Phase 7 — App: visual diff
+- [x] Diff colors per value.
+- [x] Summary bar.
+- [x] Next/previous difference navigation with shortcuts.
+- [x] Collapse equal sections.
 
-## Fase 8 — App: utilidades del MVP
-- [x] Configurar clave de arrays e ignorar rutas.
-- [x] Copiar ruta y valor de nodo.
-- [x] Comparar portapapeles contra archivo.
-- [x] Botones de formatear/minificar/ordenar.
-- [x] Tema claro/oscuro del sistema.
+## Phase 8 — App: MVP utilities
+- [x] Configure array key and ignore paths.
+- [x] Copy a node's path and value.
+- [x] Compare clipboard against file.
+- [x] Format/minify/sort buttons.
+- [x] System light/dark theme.
 
-## Fase 9 — Empaquetado
-- [x] Archivo `.desktop`, ícono, metainfo AppStream.
-- [ ] Manifiesto Flatpak y build local de prueba.
-- [ ] README con capturas e instrucciones.
+## Phase 9 — Packaging
+- [x] `.desktop` file, icon, AppStream metainfo.
+- [ ] Flatpak manifest and local test build.
+- [ ] README with screenshots and instructions.
 
-## Fase 10 — Post-MVP (en el orden que yo elija)
-- [ ] Filtro jq/JSONPath aplicado a ambos lados antes de comparar (jaq).
-- [ ] Exportar diff como JSON Patch (RFC 6902) y Merge Patch (RFC 7396).
-- [ ] Desescapar JSON embebido en strings.
-- [ ] Soporte NDJSON y JSON5.
-- [ ] Conversión JSON ↔ YAML ↔ TOML ↔ CSV.
-- [ ] Pasar cambios de un lado al otro (merge).
-- [ ] Recarga automática si el archivo cambia en disco.
-- [ ] Paleta de comandos (Ctrl+K).
-- [ ] Tolerancia numérica configurable.
-- [ ] Integración "Comparar con…" en Nautilus.
+## Phase 10 — Post-MVP (in the order I choose)
+- [ ] jq/JSONPath filter applied to both sides before comparing (jaq).
+- [ ] Export diff as JSON Patch (RFC 6902) and Merge Patch (RFC 7396).
+- [ ] Unescape JSON embedded in strings.
+- [ ] NDJSON and JSON5 support.
+- [ ] JSON ↔ YAML ↔ TOML ↔ CSV conversion.
+- [ ] Move changes from one side to the other (merge).
+- [ ] Automatic reload if the file changes on disk.
+- [ ] Command palette (Ctrl+K).
+- [ ] Configurable numeric tolerance.
+- [ ] "Compare with…" integration in Nautilus.

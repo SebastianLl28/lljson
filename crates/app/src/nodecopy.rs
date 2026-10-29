@@ -1,5 +1,5 @@
-//! Qué se copia al portapapeles de un nodo (ruta o valor) y el menú contextual de las
-//! filas. El texto se calcula con funciones puras; el menú es solo la capa de GTK.
+//! What gets copied for a node (path or value) and the row context menu. The text comes
+//! from pure functions; the menu is a thin GTK layer.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -8,9 +8,8 @@ use adw::prelude::*;
 use gtk::{gdk, glib};
 use lljson_core::{Document, FormatOptions, Kind, NodeId, format_node};
 
-/// Valor de un nodo como texto para pegar en otro sitio: los strings sin comillas y con
-/// los escapes resueltos; los escalares tal como están en el original; los contenedores
-/// como JSON formateado con 2 espacios.
+/// Strings are unquoted and unescaped, scalars keep their original text, containers
+/// are formatted with 2 spaces.
 pub fn value_text(doc: &Document, id: NodeId) -> String {
     match doc.kind(id) {
         Some(Kind::String) => doc.string(id).map(String::from).unwrap_or_default(),
@@ -20,23 +19,19 @@ pub fn value_text(doc: &Document, id: NodeId) -> String {
     }
 }
 
-/// Ruta JSONPath de un nodo (`$.users[3].email`).
 pub fn path_text(doc: &Document, id: NodeId) -> String {
     doc.path(id)
 }
 
-/// Qué acción del menú se eligió.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Copy {
     Path,
     Value,
 }
 
-/// Resultado de copiar, para que la ventana lo comunique al usuario.
 pub type Notify = Rc<dyn Fn(&str)>;
 
-/// Copia la ruta o el valor de `node`. Los contenedores se formatean en un hilo de fondo
-/// porque pueden ser enormes; el resto se copia al instante.
+/// Containers are formatted on a background thread because they can be huge.
 pub fn copy(
     clipboard: &gdk::Clipboard,
     doc: &Arc<Document>,
@@ -48,7 +43,7 @@ pub fn copy(
         Copy::Path => {
             let path = path_text(doc, node);
             clipboard.set_text(&path);
-            notify(&format!("Ruta copiada: {}", preview(&path)));
+            notify(&format!("Path copied: {}", preview(&path)));
         }
         Copy::Value if doc.kind(node).is_some_and(Kind::is_container) => {
             let doc = Arc::clone(doc);
@@ -56,18 +51,18 @@ pub fn copy(
                 clipboard,
                 notify,
                 move || value_text(&doc, node),
-                "Valor copiado",
+                "Value copied",
             );
         }
         Copy::Value => {
             clipboard.set_text(&value_text(doc, node));
-            notify("Valor copiado");
+            notify("Value copied");
         }
     }
 }
 
-/// Copia el texto que produce `produce` (calculado en un hilo de fondo, por si es enorme) y
-/// avisa con `done` al terminar.
+/// Runs `produce` on a background thread (the text may be huge), copies the result and
+/// calls `notify(done)`.
 pub fn copy_in_background(
     clipboard: &gdk::Clipboard,
     notify: &Notify,
@@ -76,12 +71,12 @@ pub fn copy_in_background(
 ) {
     let (sender, receiver) = async_channel::bounded(1);
     let spawned = std::thread::Builder::new()
-        .name("lljson-copiar".to_owned())
+        .name("lljson-copy".to_owned())
         .spawn(move || {
             let _ = sender.send_blocking(produce());
         });
     if let Err(err) = spawned {
-        notify(&format!("No se pudo copiar: {err}"));
+        notify(&format!("Could not copy: {err}"));
         return;
     }
     let clipboard = clipboard.clone();
@@ -92,18 +87,16 @@ pub fn copy_in_background(
                 clipboard.set_text(&text);
                 notify(done);
             }
-            Err(_) => notify("No se pudo copiar"),
+            Err(_) => notify("Could not copy"),
         }
     });
 }
 
-/// Texto completo de un documento tal como está cargado (tras formatear, minificar u
-/// ordenar es el resultado de esa operación).
+/// Full document text as currently loaded (after format/minify/sort, that result).
 pub fn document_text(doc: &Document) -> String {
     String::from_utf8_lossy(doc.source_bytes()).into_owned()
 }
 
-/// Menú contextual de una fila, anclado en `(x, y)` de `parent`.
 pub fn show_menu(parent: &gtk::Widget, x: f64, y: f64, on_choose: impl Fn(Copy) + 'static) {
     let on_choose = Rc::new(on_choose);
     let popover = gtk::Popover::builder()
@@ -112,7 +105,7 @@ pub fn show_menu(parent: &gtk::Widget, x: f64, y: f64, on_choose: impl Fn(Copy) 
         .css_classes(["menu"])
         .build();
     let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for (label, what) in [("Copiar ruta", Copy::Path), ("Copiar valor", Copy::Value)] {
+    for (label, what) in [("Copy path", Copy::Path), ("Copy value", Copy::Value)] {
         let button = gtk::Button::builder()
             .label(label)
             .css_classes(["flat"])
@@ -132,7 +125,7 @@ pub fn show_menu(parent: &gtk::Widget, x: f64, y: f64, on_choose: impl Fn(Copy) 
     popover.set_child(Some(&list));
     popover.set_parent(parent);
     popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-    // Un popover con padre propio debe desanclarse al cerrarse.
+    // A popover with its own parent must be unparented on close.
     popover.connect_closed(|popover| {
         let popover = popover.clone();
         glib::idle_add_local_once(move || popover.unparent());
@@ -140,7 +133,6 @@ pub fn show_menu(parent: &gtk::Widget, x: f64, y: f64, on_choose: impl Fn(Copy) 
     popover.popup();
 }
 
-/// Recorta un texto largo para mostrarlo en un aviso.
 fn preview(text: &str) -> String {
     const MAX: usize = 60;
     if text.chars().count() <= MAX {
@@ -157,7 +149,7 @@ mod tests {
 
     fn doc(text: &str) -> Document {
         parse(text, &ParseOptions::default())
-            .expect("JSON válido")
+            .expect("valid JSON")
             .document
     }
 
@@ -165,7 +157,7 @@ mod tests {
         (0..doc.node_count())
             .map(NodeId::from_index)
             .find(|&id| doc.path(id) == path)
-            .expect("ruta existente")
+            .expect("existing path")
     }
 
     #[test]

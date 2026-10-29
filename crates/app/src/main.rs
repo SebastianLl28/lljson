@@ -1,4 +1,4 @@
-//! lljson: compara y formatea JSON (GTK4 + libadwaita).
+//! lljson: compare and format JSON (GTK4 + libadwaita).
 
 mod args;
 #[cfg(any(debug_assertions, feature = "devtools"))]
@@ -25,7 +25,6 @@ const APP_ID: &str = "io.github.sebastianll28.Lljson";
 fn main() -> glib::ExitCode {
     #[cfg(any(debug_assertions, feature = "devtools"))]
     devtools::mark_start();
-    // `clap` termina el proceso con `--help`, `--version` o argumentos inválidos.
     let (left, right) = match args::Args::parse().into_inputs() {
         Ok(inputs) => inputs,
         Err(message) => args::Args::command()
@@ -33,8 +32,8 @@ fn main() -> glib::ExitCode {
             .exit(),
     };
 
-    // Cada ejecución es una instancia propia: así `lljson a b` siempre abre su ventana
-    // y `-` lee la entrada estándar de este proceso (una instancia remota no podría).
+    // NON_UNIQUE: `lljson a b` must always open its own window, and `-` must read
+    // this process's stdin (a remote instance could not).
     let app = adw::Application::builder()
         .application_id(APP_ID)
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -58,7 +57,7 @@ fn main() -> glib::ExitCode {
         #[cfg(any(debug_assertions, feature = "devtools"))]
         devtools::install(&window);
     });
-    // GTK no debe interpretar los argumentos: ya los procesó `clap`.
+    // Hide the arguments from GTK; clap already handled them.
     let program: Vec<String> = std::env::args().take(1).collect();
     app.run_with_args(&program)
 }

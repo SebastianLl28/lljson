@@ -1,5 +1,5 @@
-//! Árbol JSON en arena: todos los nodos viven en un `Vec<Node>` plano y se
-//! referencian por índice. Los strings y números son rangos sobre el texto original.
+//! Arena-based JSON tree: nodes live in a flat `Vec<Node>` and are referenced by index.
+//! Strings and numbers are spans over the original text.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -7,20 +7,19 @@ use std::ops::Range;
 use crate::decode::unescape;
 use crate::source::Source;
 
-/// Índice de un nodo dentro del arena de un [`Document`].
+/// Index of a node in a [`Document`] arena.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub(crate) u32);
 
 impl NodeId {
-    /// Valor centinela para "sin nodo" (padre de la raíz, sin hijos, sin hermano).
+    /// Sentinel for "no node" (root's parent, no child, no sibling).
     pub(crate) const NONE: NodeId = NodeId(u32::MAX);
 
-    /// Id del nodo en la posición `index` del arena (inválido si no cabe en `u32`).
+    /// Invalid if `index` does not fit in `u32`.
     pub fn from_index(index: usize) -> NodeId {
         NodeId(u32::try_from(index).unwrap_or(u32::MAX))
     }
 
-    /// Posición del nodo en el arena.
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -34,7 +33,7 @@ impl NodeId {
     }
 }
 
-/// Rango de bytes `[start, end)` sobre el texto original.
+/// Byte range `[start, end)` over the original text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Span {
     pub start: u32,
@@ -44,7 +43,7 @@ pub struct Span {
 impl Span {
     pub(crate) const EMPTY: Span = Span { start: 0, end: 0 };
 
-    /// Crea un rango. El parser garantiza que ambos extremos caben en `u32`.
+    // The parser guarantees both ends fit in `u32`.
     pub(crate) fn new(start: usize, end: usize) -> Span {
         Span {
             start: start as u32,
@@ -65,7 +64,6 @@ impl Span {
     }
 }
 
-/// Tipo de valor JSON de un nodo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Kind {
@@ -84,17 +82,17 @@ impl Kind {
 }
 
 pub(crate) mod flags {
-    /// Valor de un nodo `Bool`.
+    /// Value of a `Bool` node.
     pub const TRUE: u8 = 1;
-    /// El string del valor contiene secuencias de escape.
+    /// The value string contains escape sequences.
     pub const VALUE_ESCAPED: u8 = 1 << 1;
-    /// La clave contiene secuencias de escape.
+    /// The key contains escape sequences.
     pub const KEY_ESCAPED: u8 = 1 << 2;
-    /// El nodo es miembro de un objeto y tiene clave.
+    /// The node is an object member and has a key.
     pub const HAS_KEY: u8 = 1 << 3;
 }
 
-/// Nodo del arena. Los hijos forman una lista enlazada (`first_child` → `next_sibling`).
+/// Arena node. Children form a linked list (`first_child` -> `next_sibling`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Node {
     pub(crate) kind: Kind,
@@ -103,11 +101,11 @@ pub struct Node {
     pub(crate) first_child: NodeId,
     pub(crate) next_sibling: NodeId,
     pub(crate) child_count: u32,
-    /// Contenido de la clave sin comillas (vacío si no tiene).
+    /// Key content without quotes (empty if none).
     pub(crate) key: Span,
-    /// Strings: contenido sin comillas. Números: el literal. Contenedores: de `{`/`[` a `}`/`]`.
+    /// Strings: content without quotes. Numbers: the literal. Containers: `{`/`[` through `}`/`]`.
     pub(crate) value: Span,
-    /// Hash semántico del subárbol (ver `hash.rs`).
+    /// Semantic subtree hash (see `hash.rs`).
     pub(crate) hash: u64,
 }
 
@@ -132,7 +130,7 @@ impl Node {
         self.child_count
     }
 
-    /// Rango de la clave sin comillas, si el nodo es miembro de un objeto.
+    /// Key span without quotes, if the node is an object member.
     pub fn key_span(&self) -> Option<Span> {
         self.has(flags::HAS_KEY).then_some(self.key)
     }
@@ -141,8 +139,7 @@ impl Node {
         self.value
     }
 
-    /// Hash semántico del subárbol: valores JSON iguales tienen el mismo hash,
-    /// sin importar el orden de las claves ni el formato del texto.
+    /// Semantic subtree hash: equal JSON values hash equal regardless of key order or formatting.
     pub fn hash(&self) -> u64 {
         self.hash
     }
@@ -152,7 +149,6 @@ impl Node {
     }
 }
 
-/// Documento JSON parseado: el texto original y el arena de nodos.
 #[derive(Debug)]
 pub struct Document {
     source: Source,
@@ -193,8 +189,8 @@ impl Document {
         self.node(id).map(Node::hash)
     }
 
-    /// Fin (exclusivo) del subárbol de un nodo. Los nodos están en preorden, así que
-    /// el subárbol ocupa el rango contiguo `id.index()..subtree_end(id)` del arena.
+    /// Exclusive end of a node's subtree. Nodes are in preorder, so the subtree is the
+    /// contiguous arena range `id.index()..subtree_end(id)`.
     pub fn subtree_end(&self, id: NodeId) -> usize {
         let mut current = id;
         while let Some(node) = self.node(current) {
@@ -209,18 +205,16 @@ impl Document {
         self.nodes.len()
     }
 
-    /// Hijos directos de un nodo, en orden de aparición.
     pub fn children(&self, id: NodeId) -> Children<'_> {
         let next = self.node(id).map_or(NodeId::NONE, |n| n.first_child);
         Children { doc: self, next }
     }
 
-    /// Texto original completo.
     pub fn source_bytes(&self) -> &[u8] {
         self.source.as_bytes()
     }
 
-    /// Texto de un rango del original. Devuelve `""` si el rango no es válido.
+    /// Returns `""` if the span is invalid.
     pub fn text(&self, span: Span) -> &str {
         self.source
             .as_bytes()
@@ -229,19 +223,17 @@ impl Document {
             .unwrap_or("")
     }
 
-    /// Texto original del valor (para strings, sin comillas ni decodificar).
+    /// Raw value text (for strings: undecoded, without quotes).
     pub fn raw(&self, id: NodeId) -> &str {
         self.node(id).map_or("", |n| self.text(n.value))
     }
 
-    /// Clave decodificada, si el nodo es miembro de un objeto.
     pub fn key(&self, id: NodeId) -> Option<Cow<'_, str>> {
         let node = self.node(id)?;
         let span = node.key_span()?;
         Some(self.decoded(span, node.has(flags::KEY_ESCAPED)))
     }
 
-    /// Valor decodificado de un nodo `String`.
     pub fn string(&self, id: NodeId) -> Option<Cow<'_, str>> {
         let node = self.node(id).filter(|n| n.kind == Kind::String)?;
         Some(self.decoded(node.value, node.has(flags::VALUE_ESCAPED)))
@@ -252,7 +244,6 @@ impl Document {
         Some(node.has(flags::TRUE))
     }
 
-    /// Literal de un nodo `Number`, tal como aparece en el texto.
     pub fn number(&self, id: NodeId) -> Option<&str> {
         let node = self.node(id).filter(|n| n.kind == Kind::Number)?;
         Some(self.text(node.value))
@@ -268,7 +259,6 @@ impl Document {
     }
 }
 
-/// Iterador sobre los hijos directos de un nodo.
 pub struct Children<'a> {
     doc: &'a Document,
     next: NodeId,
@@ -302,7 +292,7 @@ mod tests {
         }
     }
 
-    /// Construye a mano el arena de `{"a":1,"b\n":"x\ty"}`.
+    /// Hand-built arena for `{"a":1,"b\n":"x\ty"}`.
     fn sample() -> Document {
         let text = r#"{"a":1,"b\n":"x\ty"}"#;
         let root = NodeId(0);

@@ -1,6 +1,5 @@
-//! Vista virtualizada: un `GListModel` propio sobre la lista plana de filas de `core`
-//! y la fábrica que genera el texto de cada fila al mostrarse (en el `bind`).
-//! Solo existen widgets para las filas visibles; `GtkListView` los recicla.
+//! Virtualized view: a custom `GListModel` over the flat row list from `core`, plus the
+//! factory that fills each row on `bind`. Only visible rows have widgets.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,15 +12,13 @@ use lljson_core::{Cell, DiffResult, DiffStatus, Document, Rows, TokenKind, cell_
 
 use crate::pane::Side;
 
-/// Sangría por nivel de anidamiento, en píxeles.
 const INDENT_PX: i32 = 16;
-/// A partir de esta profundidad la sangría deja de crecer.
+/// Indentation stops growing past this depth.
 const MAX_INDENT_DEPTH: u16 = 200;
 
 const STYLE: &str = include_str!("style.css");
 const STYLE_DARK: &str = include_str!("style-dark.css");
 
-/// Carga los estilos de la vista y cambia la paleta de sintaxis con el tema del sistema.
 pub fn install_styles() {
     let Some(display) = gtk::gdk::Display::default() else {
         return;
@@ -57,7 +54,6 @@ fn token_class(kind: TokenKind) -> &'static str {
     }
 }
 
-/// Clases CSS del diff que se ponen en la raíz de la fila y en el valor (ver `style.css`).
 const DIFF_ROW_CLASSES: [&str; 5] = [
     "diff-added",
     "diff-removed",
@@ -66,11 +62,10 @@ const DIFF_ROW_CLASSES: [&str; 5] = [
     "diff-ignored",
 ];
 
-/// Sección igual que está colapsada: se atenúa para distinguirla de las que tienen cambios.
+/// Collapsed equal section: dimmed to tell it apart from sections with changes.
 const EQUAL_SECTION_CLASS: &str = "diff-equal-section";
 
-/// Clase de la fila entera y de su valor para un estado. Los contenedores con cambios
-/// internos (`Contains`) no se pintan: los cambios se ven en sus hijos.
+/// `Contains` containers are not painted: the changes show on their children.
 fn diff_class(status: DiffStatus) -> Option<&'static str> {
     match status {
         DiffStatus::Added => Some("diff-added"),
@@ -82,8 +77,7 @@ fn diff_class(status: DiffStatus) -> Option<&'static str> {
     }
 }
 
-/// Documentos que se muestran y sus filas alineadas (construidas para esos documentos).
-/// `diff` solo existe cuando hay dos documentos.
+/// Displayed documents and their aligned rows. `diff` only exists with two documents.
 #[derive(Default)]
 pub struct Comparison {
     pub left: Option<Arc<Document>>,
@@ -117,7 +111,7 @@ impl Comparison {
             })
     }
 
-    /// La fila es un contenedor colapsado con diferencias dentro (que no se ven).
+    /// Collapsed container with hidden differences inside.
     pub fn is_collapsed_with_changes(&self, position: usize) -> bool {
         let (Some(diff), Some(row)) = (&self.diff, self.rows.get(position)) else {
             return false;
@@ -131,7 +125,7 @@ impl Comparison {
                     .is_some_and(|c| diff.right_status(c.node) == DiffStatus::Contains))
     }
 
-    /// `Some(expandido)` si la fila muestra un contenedor que se puede expandir o colapsar.
+    /// `Some(expanded)` if the row is an expandable container.
     fn is_expanded(&self, position: usize) -> Option<bool> {
         self.rows
             .is_expanded(position, self.left.as_deref(), self.right.as_deref())
@@ -143,8 +137,7 @@ mod imp {
 
     use super::*;
 
-    /// Solo guarda el número de filas: los elementos se crean bajo demanda y el
-    /// contenido de cada fila se lee de [`Comparison`] en el `bind`.
+    /// Only stores the row count; items are created on demand and read from [`Comparison`].
     #[derive(Default)]
     pub struct RowsModel {
         pub len: Cell<u32>,
@@ -183,9 +176,8 @@ impl RowsModel {
         glib::Object::new()
     }
 
-    /// Avisa a la vista de que en `position` se quitaron `removed` filas y se pusieron
-    /// `added`. Debe llamarse sin ningún préstamo activo de [`Comparison`], porque la
-    /// vista vuelve a pedir las filas de inmediato.
+    /// Must be called with no active borrow of [`Comparison`]: the view re-requests
+    /// rows immediately.
     pub fn splice(&self, position: usize, removed: usize, added: usize, len: usize) {
         self.imp().len.set(to_u32(len));
         self.items_changed(to_u32(position), to_u32(removed), to_u32(added));
@@ -206,7 +198,6 @@ pub fn to_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// Widgets de una fila, creados una vez por fila visible y reutilizados.
 struct RowWidgets {
     root: gtk::Box,
     expander: gtk::Image,
@@ -257,7 +248,6 @@ impl RowWidgets {
         }
     }
 
-    /// Recupera los widgets a partir de la raíz creada por [`RowWidgets::new`].
     fn from_root(root: gtk::Box) -> Option<RowWidgets> {
         let expander = root.first_child()?;
         let key = expander.next_sibling()?;
@@ -289,11 +279,9 @@ impl RowWidgets {
     }
 }
 
-/// Clic derecho en una fila: lado, posición, widget de la fila y coordenadas en él.
+/// Right click on a row: side, position, row widget and coordinates within it.
 pub type ContextMenu = Rc<dyn Fn(Side, u32, &gtk::Widget, f64, f64)>;
 
-/// Fábrica de filas de un lado. `on_toggle` recibe la posición de la fila a expandir o
-/// colapsar (clic en el triángulo).
 pub fn factory(
     side: Side,
     comparison: Rc<RefCell<Comparison>>,
@@ -357,7 +345,7 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
     widgets.clear();
     let (Some(cell), Some(doc)) = (comparison.cell(side, position), comparison.document(side))
     else {
-        // Hueco de relleno: el otro panel tiene contenido en esta fila.
+        // Filler gap: the other pane has content on this row.
         if position < comparison.rows.len() {
             widgets.root.add_css_class("json-filler");
         }
@@ -416,7 +404,7 @@ mod tests {
             DiffStatus::Ignored,
         ];
         for status in painted {
-            let class = diff_class(status).expect("estado pintado");
+            let class = diff_class(status).expect("painted status");
             assert!(DIFF_ROW_CLASSES.contains(&class), "{class}");
         }
         assert_eq!(DIFF_ROW_CLASSES.len(), painted.len());

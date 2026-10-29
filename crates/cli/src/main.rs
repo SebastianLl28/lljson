@@ -1,5 +1,5 @@
-//! `lljson-cli`: diff semántico, formateo, minificado y generación de JSON de prueba.
-//! Un archivo `-` se lee de la entrada estándar.
+//! `lljson-cli`: semantic diff, format, minify and test JSON generation.
+//! A file named `-` is read from standard input.
 
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -13,14 +13,13 @@ use lljson_core::{
     parse,
 };
 
-/// Caracteres máximos de un valor en la salida del diff.
 const PREVIEW_CHARS: usize = 120;
 
 #[derive(Parser)]
 #[command(
     name = "lljson-cli",
     version,
-    about = "Diff semántico y formateo de JSON"
+    about = "Semantic JSON diff and formatting"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -29,38 +28,39 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Compara dos documentos. Sale con 0 si son iguales, 1 si difieren y 2 si hay un error.
+    /// Compare two documents (exit 0 if equal, 1 if different, 2 on error)
     Diff(DiffArgs),
-    /// Formatea un documento con indentación.
+    /// Format a document with indentation
     Format(FormatArgs),
-    /// Minifica un documento (sin espacios ni saltos de línea).
+    /// Minify a document
     Minify(MinifyArgs),
-    /// Genera un documento de prueba determinista (array de registros de 12 nodos).
-    /// Con la misma semilla, `--modify`/`--type-change`/`--remove`/`--add` producen una
-    /// variante con exactamente esos cambios (comparar con `--array-key id`).
+    /// Generate a deterministic test document (array of 12-node records)
+    ///
+    /// With the same seed, `--modify`/`--type-change`/`--remove`/`--add` produce a
+    /// variant with exactly those changes (compare with `--array-key id`).
     Generate(GenerateArgs),
 }
 
 #[derive(Args)]
 struct InputArgs {
-    /// Acepta comentarios `//` y `/* */` y comas finales (JSONC).
+    /// Accept `//` and `/* */` comments and trailing commas (JSONC)
     #[arg(long)]
     tolerant: bool,
 }
 
 #[derive(Args)]
 struct DiffArgs {
-    /// Documento izquierdo (`-` para la entrada estándar).
+    /// Left document (`-` for standard input)
     left: PathBuf,
-    /// Documento derecho (`-` para la entrada estándar).
+    /// Right document (`-` for standard input)
     right: PathBuf,
-    /// Empareja los elementos de los arrays por esta clave (p. ej. `id`).
-    #[arg(long, value_name = "CLAVE")]
+    /// Match array elements by this key (e.g. `id`)
+    #[arg(long, value_name = "KEY")]
     array_key: Option<String>,
-    /// Clave (`timestamp`) o ruta (`$.users[*].updatedAt`) que no se compara. Repetible.
-    #[arg(long, value_name = "REGLA")]
+    /// Key (`timestamp`) or path (`$.users[*].updatedAt`) to skip; repeatable
+    #[arg(long, value_name = "RULE")]
     ignore: Vec<String>,
-    /// No escribe nada: solo el código de salida.
+    /// Print nothing; only set the exit code
     #[arg(short, long)]
     quiet: bool,
     #[command(flatten)]
@@ -69,16 +69,16 @@ struct DiffArgs {
 
 #[derive(Args)]
 struct FormatArgs {
-    /// Documento (`-` o vacío para la entrada estándar).
+    /// Document (`-` or omitted for standard input)
     #[arg(default_value = "-")]
     file: PathBuf,
-    /// Espacios por nivel.
+    /// Spaces per level
     #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(0..=16))]
     indent: u8,
-    /// Indenta con tabuladores.
+    /// Indent with tabs
     #[arg(long, conflicts_with = "indent")]
     tab: bool,
-    /// Ordena las claves de cada objeto.
+    /// Sort the keys of every object
     #[arg(long)]
     sort_keys: bool,
     #[command(flatten)]
@@ -87,10 +87,10 @@ struct FormatArgs {
 
 #[derive(Args)]
 struct MinifyArgs {
-    /// Documento (`-` o vacío para la entrada estándar).
+    /// Document (`-` or omitted for standard input)
     #[arg(default_value = "-")]
     file: PathBuf,
-    /// Ordena las claves de cada objeto.
+    /// Sort the keys of every object
     #[arg(long)]
     sort_keys: bool,
     #[command(flatten)]
@@ -99,24 +99,24 @@ struct MinifyArgs {
 
 #[derive(Args)]
 struct GenerateArgs {
-    /// Nodos aproximados del documento base (se redondea a registros completos).
+    /// Approximate node count of the base document (rounded to whole records)
     #[arg(long, default_value_t = 1_000_000)]
     nodes: usize,
     #[arg(long, default_value_t = 1)]
     seed: u64,
-    /// Registros con `name` modificado.
+    /// Records with a modified `name`
     #[arg(long, default_value_t = 0, value_name = "N")]
     modify: usize,
-    /// Registros con `active` cambiado de booleano a string.
+    /// Records whose `active` changes from boolean to string
     #[arg(long, default_value_t = 0, value_name = "N")]
     type_change: usize,
-    /// Registros eliminados.
+    /// Records removed
     #[arg(long, default_value_t = 0, value_name = "N")]
     remove: usize,
-    /// Registros nuevos insertados.
+    /// New records inserted
     #[arg(long, default_value_t = 0, value_name = "N")]
     add: usize,
-    /// Sin espacios ni saltos de línea (por defecto, indentado con 2 espacios).
+    /// No whitespace (default: indented with 2 spaces)
     #[arg(long)]
     compact: bool,
 }
@@ -179,12 +179,12 @@ fn run(command: Command) -> Result<ExitCode> {
 
 fn run_diff(args: &DiffArgs, out: &mut impl Write) -> Result<ExitCode> {
     if is_stdin(&args.left) && is_stdin(&args.right) {
-        bail!("solo uno de los dos documentos puede leerse de la entrada estándar");
+        bail!("only one of the two documents can be read from standard input");
     }
     let ignore = args
         .ignore
         .iter()
-        .map(|rule| IgnoreRule::parse(rule).with_context(|| format!("regla --ignore {rule:?}")))
+        .map(|rule| IgnoreRule::parse(rule).with_context(|| format!("--ignore rule {rule:?}")))
         .collect::<Result<Vec<_>>>()?;
     let options = DiffOptions {
         array_key: args.array_key.clone(),
@@ -196,7 +196,7 @@ fn run_diff(args: &DiffArgs, out: &mut impl Write) -> Result<ExitCode> {
         let left = load(&args.left, &args.input);
         let right = right
             .join()
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("el hilo de parseo terminó con pánico")));
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("the parse thread panicked")));
         (left, right)
     });
     let (left, right) = (left?, right?);
@@ -221,10 +221,10 @@ fn load(path: &Path, input: &InputArgs) -> Result<Document> {
         io::stdin()
             .lock()
             .read_to_end(&mut bytes)
-            .context("no se pudo leer la entrada estándar")?;
+            .context("could not read standard input")?;
         Source::Owned(bytes)
     } else {
-        Source::from_file(path).with_context(|| format!("no se pudo abrir {}", path.display()))?
+        Source::from_file(path).with_context(|| format!("could not open {}", path.display()))?
     };
     let options = ParseOptions {
         mode: if input.tolerant {
@@ -248,7 +248,7 @@ fn write_document(
     Ok(())
 }
 
-/// Una línea por cambio: `+` añadido, `-` eliminado, `~` modificado, `!` cambio de tipo.
+/// One line per change: `+` added, `-` removed, `~` modified, `!` type change.
 fn write_change(
     out: &mut impl Write,
     left: &Document,
@@ -271,13 +271,13 @@ fn write_change(
             let (before, after) = (preview(left, l), preview(right, r));
             writeln!(out, "{mark} {}: {before} → {after}", left.path(l))?;
         }
-        // El motor de diff siempre rellena los nodos que corresponden a cada tipo.
-        _ => bail!("cambio sin nodos: {change:?}"),
+        // The diff engine always fills in the nodes that each kind requires.
+        _ => bail!("change without nodes: {change:?}"),
     }
     Ok(())
 }
 
-/// Valor minificado y recortado a [`PREVIEW_CHARS`] caracteres.
+/// Minified value truncated to [`PREVIEW_CHARS`] characters.
 fn preview(doc: &Document, id: NodeId) -> String {
     let options = FormatOptions {
         indent: Indent::None,
@@ -293,16 +293,16 @@ fn preview(doc: &Document, id: NodeId) -> String {
 
 fn describe(summary: Summary) -> String {
     if summary.total() == 0 {
-        return "Sin diferencias".to_owned();
+        return "No differences".to_owned();
     }
     let mut text = format!(
         "{}, {}, {}",
-        plural(summary.added, "añadido", "añadidos"),
-        plural(summary.removed, "eliminado", "eliminados"),
-        plural(summary.modified, "modificado", "modificados"),
+        plural(summary.added, "added", "added"),
+        plural(summary.removed, "removed", "removed"),
+        plural(summary.modified, "modified", "modified"),
     );
     if summary.type_changed > 0 {
-        let types = plural(summary.type_changed, "cambio de tipo", "cambios de tipo");
+        let types = plural(summary.type_changed, "type change", "type changes");
         text.push_str(&format!(" ({types})"));
     }
     text
@@ -324,7 +324,7 @@ fn display_name(path: &Path) -> String {
     }
 }
 
-/// `lljson-cli … | head` cierra la tubería antes de tiempo: no es un error.
+/// `lljson-cli … | head` closes the pipe early; that is not an error.
 fn is_broken_pipe(err: &anyhow::Error) -> bool {
     err.chain()
         .filter_map(|cause| cause.downcast_ref::<io::Error>())
@@ -337,13 +337,13 @@ mod tests {
 
     fn doc(text: &str) -> Document {
         parse(text, &ParseOptions::default())
-            .expect("JSON válido")
+            .expect("valid JSON")
             .document
     }
 
     #[test]
     fn describe_counts() {
-        assert_eq!(describe(Summary::default()), "Sin diferencias");
+        assert_eq!(describe(Summary::default()), "No differences");
         let summary = Summary {
             added: 1,
             removed: 2,
@@ -352,7 +352,7 @@ mod tests {
         };
         assert_eq!(
             describe(summary),
-            "1 añadido, 2 eliminados, 3 modificados (1 cambio de tipo)"
+            "1 added, 2 removed, 3 modified (1 type change)"
         );
     }
 
@@ -378,7 +378,7 @@ mod tests {
         let result = diff(&left, &right, &DiffOptions::default());
         let mut out = Vec::new();
         for change in result.changes() {
-            write_change(&mut out, &left, &right, change).expect("escribir");
+            write_change(&mut out, &left, &right, change).expect("write");
         }
         let text = String::from_utf8(out).expect("UTF-8");
         assert!(text.contains("~ $.a: 1 → 2\n"), "{text}");

@@ -1,11 +1,11 @@
-/* Colores de sintaxis (tema oscuro). */
+/* Syntax colors (dark theme). */
 .json-key { color: #99c1f1; }
 .json-string { color: #dc8add; }
 .json-number { color: #ffa348; }
 .json-bool { color: #6fd3c7; }
 .json-null { color: #9a9996; }
 
-/* Diff (tema oscuro): tintes algo más fuertes sobre el fondo oscuro. */
+/* Diff (dark theme): slightly stronger tints on the dark background. */
 .json-row.diff-added { background-color: alpha(#57e389, 0.16); }
 .json-row.diff-removed { background-color: alpha(#ff7b63, 0.16); }
 .json-row.diff-modified { background-color: alpha(#f8e45c, 0.14); }

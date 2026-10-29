@@ -1,6 +1,6 @@
 [package]
 name = "lljson-cli"
-description = "Herramienta de terminal de lljson"
+description = "Terminal tool for lljson"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

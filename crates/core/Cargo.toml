@@ -1,6 +1,6 @@
 [package]
 name = "lljson-core"
-description = "Parser, árbol, hash, formateador y diff de JSON para lljson"
+description = "JSON parser, tree, hash, formatter and diff for lljson"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

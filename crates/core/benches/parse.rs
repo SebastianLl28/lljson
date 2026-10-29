@@ -1,6 +1,5 @@
-//! Benchmark preliminar de estrategias de parseo (Fase 1).
-//! Compara el parser propio (que construye el arena) con serde_json y simd-json.
-//! Entrada: documento de 1 millón de nodos del generador de `core`, indentado.
+//! Parsing benchmark: the arena-building parser vs serde_json and simd-json.
+//! Input: indented 1-million-node document from the `core` generator.
 
 use std::hint::black_box;
 use std::time::Duration;
@@ -9,30 +8,30 @@ use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_mai
 use lljson_core::{GenerateOptions, Mode, ParseOptions, generate, parse};
 
 fn bench(c: &mut Criterion) {
-    let text = generate(&GenerateOptions::default()).expect("generar el documento");
+    let text = generate(&GenerateOptions::default()).expect("generate the document");
     let nodes = match parse(text.as_str(), &ParseOptions::default()) {
         Ok(parsed) => parsed.document.node_count(),
-        Err(e) => panic!("el JSON generado debería ser válido: {e}"),
+        Err(e) => panic!("generated JSON should be valid: {e}"),
     };
     eprintln!(
-        "entrada: {} nodos, {:.1} MiB, arena: {:.1} MiB",
+        "input: {} nodes, {:.1} MiB, arena: {:.1} MiB",
         nodes,
         text.len() as f64 / 1048576.0,
         (nodes * std::mem::size_of::<lljson_core::Node>()) as f64 / 1048576.0
     );
 
-    let mut group = c.benchmark_group("parse_1m_nodos");
+    let mut group = c.benchmark_group("parse_1m_nodes");
     group.sample_size(20);
     group.measurement_time(Duration::from_secs(10));
     group.throughput(Throughput::Bytes(text.len() as u64));
 
-    group.bench_function("lljson_estricto", |b| {
+    group.bench_function("lljson_strict", |b| {
         b.iter(|| parse(black_box(text.as_str()), &ParseOptions::default()))
     });
     let tolerant = ParseOptions {
         mode: Mode::Tolerant,
     };
-    group.bench_function("lljson_tolerante", |b| {
+    group.bench_function("lljson_tolerant", |b| {
         b.iter(|| parse(black_box(text.as_str()), &tolerant))
     });
     group.bench_function("serde_json_value", |b| {

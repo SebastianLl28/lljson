@@ -1,4 +1,4 @@
-//! Tests del binario `lljson-cli`: argumentos, stdin, salida y códigos de salida.
+//! Tests for the `lljson-cli` binary: arguments, stdin, output and exit codes.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,14 +11,14 @@ fn run(args: &[&str], stdin: &str) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("lanzar lljson-cli");
+        .expect("spawn lljson-cli");
     child
         .stdin
         .take()
         .expect("stdin")
         .write_all(stdin.as_bytes())
-        .expect("escribir stdin");
-    child.wait_with_output().expect("esperar a lljson-cli")
+        .expect("write stdin");
+    child.wait_with_output().expect("wait for lljson-cli")
 }
 
 fn stdout(output: &Output) -> String {
@@ -29,15 +29,15 @@ fn stderr(output: &Output) -> String {
     String::from_utf8(output.stderr.clone()).expect("UTF-8")
 }
 
-/// Archivo temporal propio de cada test (los tests corren en paralelo).
+/// Per-test temp file (tests run in parallel).
 fn temp_file(name: &str, text: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("lljson-cli-{}-{name}", std::process::id()));
-    std::fs::write(&path, text).expect("escribir archivo temporal");
+    std::fs::write(&path, text).expect("write temp file");
     path
 }
 
 fn arg(path: &Path) -> &str {
-    path.to_str().expect("ruta UTF-8")
+    path.to_str().expect("UTF-8 path")
 }
 
 #[test]
@@ -74,11 +74,11 @@ fn minify_file() {
 
 #[test]
 fn tolerant_input() {
-    let text = "[1, 2, // dos\n]";
+    let text = "[1, 2, // two\n]";
     let strict = run(&["minify"], text);
     assert_eq!(strict.status.code(), Some(2));
     assert!(
-        stderr(&strict).contains("<stdin>: línea 1"),
+        stderr(&strict).contains("<stdin>: line 1"),
         "{}",
         stderr(&strict)
     );
@@ -93,7 +93,7 @@ fn diff_equal_documents() {
     let path = temp_file("equal.json", r#"{"a":1,"b":[1,2]}"#);
     let output = run(&["diff", arg(&path), "-"], r#"{ "b": [1, 2], "a": 1 }"#);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    assert_eq!(stdout(&output), "Sin diferencias\n");
+    assert_eq!(stdout(&output), "No differences\n");
     let _ = std::fs::remove_file(path);
 }
 
@@ -109,7 +109,7 @@ fn diff_reports_changes() {
          ! $.b: \"1\" → 1\n\
          - $.c: true\n\
          + $.d: null\n\
-         1 añadido, 1 eliminado, 2 modificados (1 cambio de tipo)\n"
+         1 added, 1 removed, 2 modified (1 type change)\n"
     );
 
     let quiet = run(&["diff", "-q", arg(&left), arg(&right)], "");
@@ -135,11 +135,11 @@ fn diff_errors() {
     let both_stdin = run(&["diff", "-", "-"], "{}");
     assert_eq!(both_stdin.status.code(), Some(2));
 
-    let missing = run(&["diff", "/no/existe.json", "-"], "{}");
+    let missing = run(&["diff", "/no/such.json", "-"], "{}");
     assert_eq!(missing.status.code(), Some(2));
-    assert!(stderr(&missing).contains("no se pudo abrir /no/existe.json"));
+    assert!(stderr(&missing).contains("could not open /no/such.json"));
 
-    let bad_rule = run(&["diff", "--ignore", "$.a[", "/no/existe.json", "-"], "{}");
+    let bad_rule = run(&["diff", "--ignore", "$.a[", "/no/such.json", "-"], "{}");
     assert_eq!(bad_rule.status.code(), Some(2));
     assert!(
         stderr(&bad_rule).contains("--ignore"),
@@ -181,7 +181,7 @@ fn generate_base_and_variant() {
     );
     assert_eq!(output.status.code(), Some(1));
     assert!(
-        stdout(&output).ends_with("3 añadidos, 1 eliminado, 3 modificados (1 cambio de tipo)\n"),
+        stdout(&output).ends_with("3 added, 1 removed, 3 modified (1 type change)\n"),
         "{}",
         stdout(&output)
     );
@@ -192,5 +192,5 @@ fn generate_base_and_variant() {
 fn generate_too_many_changes() {
     let output = run(&["generate", "--nodes", "13", "--remove", "2"], "");
     assert_eq!(output.status.code(), Some(2));
-    assert!(stderr(&output).contains("2 cambios"), "{}", stderr(&output));
+    assert!(stderr(&output).contains("2 changes"), "{}", stderr(&output));
 }

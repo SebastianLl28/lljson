@@ -1,5 +1,5 @@
-//! Transformaciones de texto de un documento: formatear, minificar y ordenar claves.
-//! Son funciones puras sobre `core`; la ventana las ejecuta en un hilo de fondo.
+//! Document text transforms (format, minify, sort keys): pure functions over `core`
+//! that the window runs on a background thread.
 
 use lljson_core::{Document, FormatOptions, Indent, format, minify};
 
@@ -7,12 +7,11 @@ use lljson_core::{Document, FormatOptions, Indent, format, minify};
 pub enum Transform {
     Format(Indent),
     Minify,
-    /// Ordena las claves de cada objeto y formatea con 2 espacios.
+    /// Sorts the keys of every object and formats with 2 spaces.
     SortKeys,
 }
 
 impl Transform {
-    /// Interpreta el parámetro de la acción de formatear: `2`, `4` o `tab`.
     pub fn format_from_param(param: &str) -> Option<Transform> {
         let indent = match param {
             "2" => Indent::Spaces(2),
@@ -23,7 +22,6 @@ impl Transform {
         Some(Transform::Format(indent))
     }
 
-    /// Texto del documento tras la transformación.
     pub fn apply(self, doc: &Document) -> String {
         match self {
             Transform::Format(indent) => format(
@@ -44,14 +42,13 @@ impl Transform {
         }
     }
 
-    /// Mensaje para el usuario cuando termina.
     pub fn done_message(self) -> &'static str {
         match self {
-            Transform::Format(Indent::Spaces(2)) => "Formateado con 2 espacios",
-            Transform::Format(Indent::Spaces(4)) => "Formateado con 4 espacios",
-            Transform::Format(_) => "Formateado",
-            Transform::Minify => "Minificado",
-            Transform::SortKeys => "Claves ordenadas",
+            Transform::Format(Indent::Spaces(2)) => "Formatted with 2 spaces",
+            Transform::Format(Indent::Spaces(4)) => "Formatted with 4 spaces",
+            Transform::Format(_) => "Formatted",
+            Transform::Minify => "Minified",
+            Transform::SortKeys => "Keys sorted",
         }
     }
 }
@@ -63,7 +60,7 @@ mod tests {
 
     fn doc(text: &str) -> Document {
         parse(text, &ParseOptions::default())
-            .expect("JSON válido")
+            .expect("valid JSON")
             .document
     }
 
@@ -126,7 +123,7 @@ mod tests {
             let again = doc(&t.apply(&d));
             assert_eq!(again.node_count(), d.node_count(), "{t:?}");
         }
-        // Minificar conserva el texto original de strings y números.
+        // Minify keeps the original text of strings and numbers.
         assert_eq!(Transform::Minify.apply(&d), text);
     }
 

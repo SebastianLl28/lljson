@@ -1,17 +1,14 @@
-//! Barra resumen inferior: cuántos valores se añadieron, eliminaron o modificaron.
+//! Bottom summary bar: how many values were added, removed or modified.
 
 use adw::prelude::*;
 use lljson_core::Summary;
 
-/// Qué sabe la barra sobre la comparación actual.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
-    /// Falta algún documento: no hay nada que comparar.
     Incomplete,
     Compared(Summary),
 }
 
-/// Texto de un contador con su plural: `1 añadido`, `3 añadidos`.
 pub fn count_text(n: usize, singular: &str, plural: &str) -> String {
     format!("{n} {}", if n == 1 { singular } else { plural })
 }
@@ -57,12 +54,11 @@ impl SummaryBar {
     pub fn update(&self, state: State) {
         let counts = match state {
             State::Incomplete => {
-                self.message
-                    .set_label("Abre dos documentos para compararlos");
+                self.message.set_label("Open two documents to compare them");
                 None
             }
             State::Compared(s) if s.total() == 0 => {
-                self.message.set_label("Sin diferencias");
+                self.message.set_label("No differences");
                 None
             }
             State::Compared(s) => Some(s),
@@ -72,19 +68,18 @@ impl SummaryBar {
             chip.set_visible(counts.is_some());
         }
         if let Some(s) = counts {
-            self.added
-                .set_label(&count_text(s.added, "añadido", "añadidos"));
+            self.added.set_label(&count_text(s.added, "added", "added"));
             self.removed
-                .set_label(&count_text(s.removed, "eliminado", "eliminados"));
+                .set_label(&count_text(s.removed, "removed", "removed"));
             self.modified
-                .set_label(&count_text(s.modified, "modificado", "modificados"));
+                .set_label(&count_text(s.modified, "modified", "modified"));
             self.modified.set_tooltip_text(
                 (s.type_changed > 0)
                     .then(|| {
                         count_text(
                             s.type_changed,
-                            "cambio de tipo incluido",
-                            "cambios de tipo incluidos",
+                            "type change included",
+                            "type changes included",
                         )
                     })
                     .as_deref(),
@@ -99,12 +94,12 @@ mod tests {
 
     #[test]
     fn count_text_handles_plurals() {
-        assert_eq!(count_text(0, "añadido", "añadidos"), "0 añadidos");
-        assert_eq!(count_text(1, "añadido", "añadidos"), "1 añadido");
-        assert_eq!(count_text(2, "añadido", "añadidos"), "2 añadidos");
+        assert_eq!(count_text(0, "added", "added"), "0 added");
+        assert_eq!(count_text(1, "added", "added"), "1 added");
+        assert_eq!(count_text(2, "added", "added"), "2 added");
         assert_eq!(
-            count_text(1_000_000, "eliminado", "eliminados"),
-            "1000000 eliminados"
+            count_text(1_000_000, "removed", "removed"),
+            "1000000 removed"
         );
     }
 }

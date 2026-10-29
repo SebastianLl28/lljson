@@ -1,4 +1,4 @@
-//! Rutas de nodos (`$.users[3].email`) y reglas para ignorar rutas en el diff.
+//! Node paths (`$.users[3].email`) and path-ignore rules for the diff.
 
 use std::fmt::Write;
 
@@ -6,14 +6,13 @@ use crate::decode::unescape;
 use crate::document::{Document, NodeId};
 
 impl Document {
-    /// Posición de un nodo entre los hijos de su padre (recorre los hermanos anteriores).
+    /// Walks the preceding siblings, so it is O(position).
     pub fn child_position(&self, id: NodeId) -> Option<usize> {
         let parent = self.node(id)?.parent()?;
         self.children(parent).position(|c| c == id)
     }
 
-    /// Ruta de un nodo en notación JSONPath, p. ej. `$.users[3].email`.
-    /// Las claves que no son identificadores se escriben entre corchetes: `$["a b"]`.
+    /// JSONPath-style path, e.g. `$.users[3].email`; non-identifier keys use brackets: `$["a b"]`.
     pub fn path(&self, id: NodeId) -> String {
         let mut chain = Vec::new();
         let mut current = id;
@@ -64,34 +63,32 @@ fn is_identifier(key: &str) -> bool {
         && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }
 
-/// Regla para ignorar partes del documento al comparar.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IgnoreRule {
-    /// Cualquier miembro con esta clave, a cualquier profundidad (p. ej. `timestamp`).
+    /// Any member with this key at any depth (e.g. `timestamp`).
     Key(String),
-    /// Ruta desde la raíz (p. ej. `$.users[*].updatedAt`).
+    /// Path from the root (e.g. `$.users[*].updatedAt`).
     Path(Vec<PatternSegment>),
 }
 
-/// Segmento de una ruta de [`IgnoreRule::Path`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternSegment {
-    /// `.nombre` o `["nombre"]`.
+    /// `.name` or `["name"]`.
     Key(String),
-    /// `.*`: cualquier clave.
+    /// `.*`: any key.
     AnyKey,
     /// `[3]`.
     Index(usize),
-    /// `[*]`: cualquier índice.
+    /// `[*]`: any index.
     AnyIndex,
 }
 
-/// Error al interpretar una regla. `position` es la columna (1-based) en el texto.
+/// `position` is the 1-based column in the rule text.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PatternError {
-    #[error("la regla está vacía")]
+    #[error("the rule is empty")]
     Empty,
-    #[error("columna {position}: {message}")]
+    #[error("column {position}: {message}")]
     Invalid {
         position: usize,
         message: &'static str,
@@ -99,7 +96,7 @@ pub enum PatternError {
 }
 
 impl IgnoreRule {
-    /// Interpreta una regla: un nombre de clave suelto o una ruta que empieza por `$`.
+    /// A bare key name, or a path starting with `$`.
     pub fn parse(text: &str) -> Result<IgnoreRule, PatternError> {
         let text = text.trim();
         if text.is_empty() {
@@ -108,7 +105,7 @@ impl IgnoreRule {
         let Some(rest) = text.strip_prefix('$') else {
             return Ok(IgnoreRule::Key(text.to_owned()));
         };
-        // Columna (1-based) en `text` de la posición `i` de `rest`.
+        // 1-based column in `text` of position `i` of `rest`.
         let column = |i: usize| text.get(..1 + i).unwrap_or(text).chars().count() + 1;
         let invalid = |i: usize, message| PatternError::Invalid {
             position: column(i),
@@ -125,7 +122,7 @@ impl IgnoreRule {
                     let end = tail.find(['.', '[']).map_or(rest.len(), |n| start + n);
                     let name = rest.get(start..end).unwrap_or_default();
                     if name.is_empty() {
-                        return Err(invalid(i, "falta el nombre de la clave después de '.'"));
+                        return Err(invalid(i, "missing key name after '.'"));
                     }
                     segments.push(if name == "*" {
                         PatternSegment::AnyKey
@@ -142,11 +139,11 @@ impl IgnoreRule {
                             Some(b'\\') => j += 2,
                             Some(b'"') => break,
                             Some(_) => j += 1,
-                            None => return Err(invalid(i, "clave entre comillas sin cerrar")),
+                            None => return Err(invalid(i, "unterminated quoted key")),
                         }
                     }
                     if rest.as_bytes().get(j + 1) != Some(&b']') {
-                        return Err(invalid(j + 1, "se esperaba ']'"));
+                        return Err(invalid(j + 1, "expected ']'"));
                     }
                     let raw = rest.get(start..j).unwrap_or_default();
                     segments.push(PatternSegment::Key(unescape(raw).into_owned()));
@@ -155,7 +152,7 @@ impl IgnoreRule {
                 b'[' => {
                     let tail = rest.get(i + 1..).unwrap_or_default();
                     let Some(len) = tail.find(']') else {
-                        return Err(invalid(i, "falta ']'"));
+                        return Err(invalid(i, "missing ']'"));
                     };
                     let inner = tail.get(..len).unwrap_or_default().trim();
                     let segment = if inner == "*" {
@@ -166,7 +163,7 @@ impl IgnoreRule {
                             Err(_) => {
                                 return Err(invalid(
                                     i + 1,
-                                    "se esperaba un índice, '*' o una clave entre comillas",
+                                    "expected an index, '*' or a quoted key",
                                 ));
                             }
                         }
@@ -174,7 +171,7 @@ impl IgnoreRule {
                     segments.push(segment);
                     i += len + 2;
                 }
-                _ => return Err(invalid(i, "se esperaba '.' o '['")),
+                _ => return Err(invalid(i, "expected '.' or '['")),
             }
         }
         Ok(IgnoreRule::Path(segments))
@@ -189,7 +186,7 @@ mod tests {
     fn doc(text: &str) -> Document {
         match parse(text, &ParseOptions::default()) {
             Ok(parsed) => parsed.document,
-            Err(e) => panic!("{text:?} debería parsear: {e}"),
+            Err(e) => panic!("{text:?} should parse: {e}"),
         }
     }
 
@@ -246,7 +243,7 @@ mod tests {
         assert_eq!(IgnoreRule::parse("  "), Err(PatternError::Empty));
         let error = |text: &str| match IgnoreRule::parse(text) {
             Err(PatternError::Invalid { position, .. }) => position,
-            other => panic!("{text:?} debería fallar: {other:?}"),
+            other => panic!("{text:?} should fail: {other:?}"),
         };
         assert_eq!(error("$."), 2);
         assert_eq!(error("$.a..b"), 4);

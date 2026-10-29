@@ -1,15 +1,13 @@
-//! Formateador: genera texto JSON a partir del arena.
-//! Conserva el texto original de strings y números (escapes y precisión intactos).
-//! Es iterativo: la profundidad no está limitada por la pila del hilo.
+//! JSON formatter. Keeps the original text of strings and numbers (escapes and precision
+//! intact). Iterative, so depth is not limited by the thread stack.
 
 use crate::document::{Document, Kind, Node, NodeId};
 
-/// Indentación del texto formateado.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Indent {
     Spaces(u8),
     Tab,
-    /// Sin saltos de línea ni espacios (minificado).
+    /// No newlines or spaces (minified).
     None,
 }
 
@@ -22,17 +20,14 @@ impl Default for Indent {
 #[derive(Clone, Debug, Default)]
 pub struct FormatOptions {
     pub indent: Indent,
-    /// Ordena las claves de cada objeto (por punto de código, sobre la clave decodificada).
-    /// El orden entre claves duplicadas se conserva.
+    /// Sorts each object's keys by code point of the decoded key; duplicates keep their order.
     pub sort_keys: bool,
 }
 
-/// Formatea el documento completo.
 pub fn format(doc: &Document, options: &FormatOptions) -> String {
     format_node(doc, doc.root(), options)
 }
 
-/// Minifica el documento completo: sin espacios ni saltos de línea.
 pub fn minify(doc: &Document) -> String {
     format(
         doc,
@@ -43,7 +38,7 @@ pub fn minify(doc: &Document) -> String {
     )
 }
 
-/// Formatea el subárbol de un nodo (sin su clave). Un id inválido produce `""`.
+/// Formats a node's subtree (without its key). An invalid id yields `""`.
 pub fn format_node(doc: &Document, id: NodeId, options: &FormatOptions) -> String {
     let unit = match options.indent {
         Indent::Spaces(n) => " ".repeat(usize::from(n)),
@@ -64,7 +59,6 @@ pub fn format_node(doc: &Document, id: NodeId, options: &FormatOptions) -> Strin
     formatter.out
 }
 
-/// Siguiente hijo a escribir: en el orden del documento o ya ordenados por clave.
 enum Cursor {
     Linked(Option<NodeId>),
     Sorted(std::vec::IntoIter<NodeId>),
@@ -83,10 +77,9 @@ impl Cursor {
     }
 }
 
-/// Contenedor abierto mientras se escriben sus hijos.
 struct Frame {
     cursor: Cursor,
-    /// Profundidad de los hijos.
+    /// Depth of the children.
     depth: usize,
     object: bool,
     first: bool,
@@ -127,7 +120,7 @@ impl Formatter<'_> {
         }
     }
 
-    /// Escribe un escalar completo o abre un contenedor (sus hijos los escribe `run`).
+    /// Writes a whole scalar, or opens a container (`run` writes its children).
     fn value(&mut self, id: NodeId, depth: usize) {
         let Some(node) = self.doc.node(id) else {
             return;
@@ -188,7 +181,7 @@ mod tests {
         };
         match parse(text, &options) {
             Ok(parsed) => parsed.document,
-            Err(e) => panic!("{text:?} debería parsear: {e}"),
+            Err(e) => panic!("{text:?} should parse: {e}"),
         }
     }
 
@@ -235,7 +228,7 @@ mod tests {
 
     #[test]
     fn drops_comments_and_trailing_commas() {
-        assert_eq!(pretty("[1, // uno\n 2, /* dos */]"), "[\n  1,\n  2\n]");
+        assert_eq!(pretty("[1, // one\n 2, /* two */]"), "[\n  1,\n  2\n]");
     }
 
     fn sorted(text: &str, indent: Indent) -> String {
@@ -284,7 +277,7 @@ mod tests {
     #[test]
     fn minifies() {
         let text =
-            "{\n  \"a\": [ 1, {\"b\": null} ],\n  \"c\": \"x y\", \"d\": {}, \"e\": [] // fin\n}";
+            "{\n  \"a\": [ 1, {\"b\": null} ],\n  \"c\": \"x y\", \"d\": {}, \"e\": [] // end\n}";
         assert_eq!(
             minify(&doc(text)),
             r#"{"a":[1,{"b":null}],"c":"x y","d":{},"e":[]}"#

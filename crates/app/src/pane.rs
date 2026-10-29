@@ -1,6 +1,4 @@
-//! Panel de un documento: barra con su nombre y acciones, y una pila con sus estados
-//! (vacío, cargando, lista de filas, error). La carga ocurre en un hilo de fondo (ver
-//! `loader`); la lista virtualizada la comparten ambos paneles (ver `view`).
+//! One document pane: title/actions bar and a stack of states (empty, loading, rows, error).
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -14,10 +12,9 @@ use lljson_core::Document;
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
 use crate::view::RowsModel;
 
-/// Si una carga tarda más que esto, se muestra el indicador de progreso.
+/// Loads slower than this show the progress indicator.
 const PROGRESS_DELAY: Duration = Duration::from_millis(150);
 
-/// Lado del panel. Da nombre a sus acciones (`win.open-left`, `win.paste-right`…).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Left,
@@ -50,10 +47,9 @@ pub struct Pane {
     error: adw::StatusPage,
     loading_label: gtk::Label,
     document: RefCell<Option<Loaded>>,
-    /// Identifica la última carga pedida: los resultados de cargas anteriores se descartan.
+    /// Id of the latest load request; results from older loads are discarded.
     generation: Cell<u64>,
     loading: Cell<bool>,
-    /// Se llama cuando cambia el documento o su nombre.
     on_changed: RefCell<Option<Box<dyn Fn()>>>,
 }
 
@@ -61,10 +57,10 @@ impl Pane {
     pub fn new(side: Side, model: &RowsModel, factory: gtk::SignalListItemFactory) -> Rc<Pane> {
         let open_action = format!("win.open-{}", side.name());
         let paste_action = format!("win.paste-{}", side.name());
-        let shift = if side == Side::Right { "Mayús+" } else { "" };
+        let shift = if side == Side::Right { "Shift+" } else { "" };
 
         let title = gtk::Label::builder()
-            .label("Sin documento")
+            .label("No document")
             .hexpand(true)
             .xalign(0.0)
             .ellipsize(gtk::pango::EllipsizeMode::Middle)
@@ -75,19 +71,19 @@ impl Pane {
             .build();
         let open = gtk::Button::builder()
             .icon_name("document-open-symbolic")
-            .tooltip_text(format!("Abrir archivo (Ctrl+{shift}O)"))
+            .tooltip_text(format!("Open file (Ctrl+{shift}O)"))
             .action_name(open_action.as_str())
             .build();
         let paste = gtk::Button::builder()
             .icon_name("edit-paste-symbolic")
-            .tooltip_text(format!("Pegar del portapapeles (Ctrl+{shift}V)"))
+            .tooltip_text(format!("Paste from clipboard (Ctrl+{shift}V)"))
             .action_name(paste_action.as_str())
             .build();
         let format = gio::Menu::new();
         for (label, param) in [
-            ("Formatear con 2 espacios", "2"),
-            ("Formatear con 4 espacios", "4"),
-            ("Formatear con tabulaciones", "tab"),
+            ("Format with 2 spaces", "2"),
+            ("Format with 4 spaces", "4"),
+            ("Format with tabs", "tab"),
         ] {
             let item = gio::MenuItem::new(Some(label), None);
             item.set_action_and_target_value(
@@ -97,17 +93,14 @@ impl Pane {
             format.append_item(&item);
         }
         let transform = gio::Menu::new();
+        transform.append(Some("Minify"), Some(&format!("win.minify-{}", side.name())));
         transform.append(
-            Some("Minificar"),
-            Some(&format!("win.minify-{}", side.name())),
-        );
-        transform.append(
-            Some("Ordenar claves"),
+            Some("Sort keys"),
             Some(&format!("win.sort-{}", side.name())),
         );
         let export = gio::Menu::new();
         export.append(
-            Some("Copiar texto del documento"),
+            Some("Copy document text"),
             Some(&format!("win.copy-text-{}", side.name())),
         );
         let menu = gio::Menu::new();
@@ -116,7 +109,7 @@ impl Pane {
         menu.append_section(None, &export);
         let format_button = gtk::MenuButton::builder()
             .icon_name("format-justify-left-symbolic")
-            .tooltip_text("Formatear, minificar, ordenar claves o copiar el texto")
+            .tooltip_text("Format, minify, sort keys or copy the text")
             .menu_model(&menu)
             .build();
         let bar = gtk::Box::builder()
@@ -197,12 +190,10 @@ impl Pane {
         })
     }
 
-    /// Nombre del documento mostrado en la barra del panel.
     pub fn title(&self) -> String {
         self.title.label().into()
     }
 
-    /// Documento cargado en este panel.
     pub fn document(&self) -> Option<Arc<Document>> {
         self.document
             .borrow()
@@ -210,8 +201,6 @@ impl Pane {
             .map(|loaded| Arc::clone(&loaded.document))
     }
 
-    /// Muestra la lista de filas si el panel tiene un documento. La ventana lo llama
-    /// cuando las filas de los documentos actuales están construidas.
     pub fn show_list(&self) {
         if self.document.borrow().is_some() {
             self.stack.set_visible_child_name("list");
@@ -222,9 +211,7 @@ impl Pane {
         self.on_changed.replace(Some(Box::new(f)));
     }
 
-    /// Carga un documento en segundo plano. Una carga nueva invalida la anterior.
-    /// Mientras tanto se sigue mostrando el contenido actual; si la carga tarda más de
-    /// [`PROGRESS_DELAY`], se muestra el indicador de progreso.
+    /// Loads in the background; a new load invalidates the previous one.
     pub fn load(self: &Rc<Self>, input: Input) {
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
@@ -233,7 +220,7 @@ impl Pane {
         let receiver = loader::spawn_load(input);
 
         let pane: Weak<Pane> = Rc::downgrade(self);
-        let label = format!("Cargando {name}…");
+        let label = format!("Loading {name}…");
         glib::timeout_add_local_once(PROGRESS_DELAY, move || {
             if let Some(pane) = pane.upgrade()
                 && pane.loading.get()
@@ -253,7 +240,7 @@ impl Pane {
             if pane.generation.get() != generation {
                 return;
             }
-            // El canal solo se cierra sin resultado si el hilo de carga entró en pánico.
+            // The channel only closes without a result if the load thread panicked.
             let result = result.unwrap_or_else(|_| Err(LoadError::Interrupted { name }));
             pane.finish(result);
         });
@@ -265,15 +252,15 @@ impl Pane {
             Ok(loaded) => {
                 #[cfg(any(debug_assertions, feature = "devtools"))]
                 crate::devtools::trace(&format!(
-                    "documento cargado: {} ({} ms)",
+                    "document loaded: {} ({} ms)",
                     loaded.name,
                     loaded.elapsed.as_millis()
                 ));
-                // La lista se muestra cuando la ventana termine de construir las filas.
+                // The list is shown once the window finishes building the rows.
                 self.title.set_label(&loaded.name);
                 self.title.set_tooltip_text(Some(&describe(&loaded)));
                 self.stats.set_label(&format!(
-                    "{} nodos · {}",
+                    "{} nodes · {}",
                     group_digits(loaded.document.node_count()),
                     format_bytes(loaded.document.source_bytes().len())
                 ));
@@ -284,7 +271,7 @@ impl Pane {
                 self.title.set_tooltip_text(None);
                 self.stats.set_label("");
                 self.error
-                    .set_title(&format!("No se pudo cargar {}", err.name()));
+                    .set_title(&format!("Could not load {}", err.name()));
                 self.error.set_description(Some(&err.to_string()));
                 self.stack.set_visible_child_name("error");
                 self.document.replace(None);
@@ -297,17 +284,17 @@ impl Pane {
 }
 
 fn describe(loaded: &Loaded) -> String {
-    let mut text = format!("Leído y analizado en {} ms", loaded.elapsed.as_millis());
+    let mut text = format!("Read and parsed in {} ms", loaded.elapsed.as_millis());
     if loaded.fixes > 0 {
         text.push_str(&format!(
-            "\nJSONC: {} comentarios o comas finales aceptados",
+            "\nJSONC: {} comments or trailing commas accepted",
             loaded.fixes
         ));
     }
     text
 }
 
-/// Tamaño legible con coma decimal: `512 B`, `3,4 KiB`, `20,7 MiB`.
+/// Human-readable size: `512 B`, `3.4 KiB`, `20.7 MiB`.
 pub fn format_bytes(bytes: usize) -> String {
     const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
     let mut value = bytes as f64;
@@ -319,11 +306,11 @@ pub fn format_bytes(bytes: usize) -> String {
     if unit == 0 {
         format!("{bytes} B")
     } else {
-        format!("{value:.1} {}", UNITS[unit]).replace('.', ",")
+        format!("{value:.1} {}", UNITS[unit])
     }
 }
 
-/// Separa los miles con espacios finos: `1 000 009`.
+/// Groups thousands with thin spaces: `1 000 009`.
 pub fn group_digits(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3 * 3);
@@ -338,12 +325,12 @@ pub fn group_digits(n: usize) -> String {
 
 fn empty_page(open_action: &str, paste_action: &str) -> adw::StatusPage {
     let open = gtk::Button::builder()
-        .label("Abrir…")
+        .label("Open…")
         .action_name(open_action)
         .css_classes(["pill", "suggested-action"])
         .build();
     let paste = gtk::Button::builder()
-        .label("Pegar")
+        .label("Paste")
         .action_name(paste_action)
         .css_classes(["pill"])
         .build();
@@ -356,8 +343,8 @@ fn empty_page(open_action: &str, paste_action: &str) -> adw::StatusPage {
     buttons.append(&paste);
     adw::StatusPage::builder()
         .icon_name("document-open-symbolic")
-        .title("Arrastra un JSON aquí")
-        .description("o ábrelo desde un archivo o pégalo del portapapeles")
+        .title("Drop a JSON here")
+        .description("or open it from a file or paste it from the clipboard")
         .child(&buttons)
         .build()
 }
@@ -370,8 +357,8 @@ mod tests {
     fn bytes_are_human_readable() {
         assert_eq!(format_bytes(0), "0 B");
         assert_eq!(format_bytes(1023), "1023 B");
-        assert_eq!(format_bytes(1024), "1,0 KiB");
-        assert_eq!(format_bytes(21_705_000), "20,7 MiB");
+        assert_eq!(format_bytes(1024), "1.0 KiB");
+        assert_eq!(format_bytes(21_705_000), "20.7 MiB");
         assert_eq!(format_bytes(usize::MAX), format_bytes(usize::MAX));
     }
 

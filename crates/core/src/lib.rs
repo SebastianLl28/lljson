@@ -1,6 +1,5 @@
-//! Núcleo de lljson: parser, árbol en arena, hash, formateador, diff, filas de la vista
-//! y generador de pruebas.
-//! Sin dependencias de UI.
+//! lljson core: parser, arena tree, hash, formatter, diff, view rows and test generator.
+//! No UI dependencies.
 
 mod decode;
 mod diff;
@@ -31,7 +30,6 @@ pub use rows::{
 };
 pub use source::Source;
 
-/// Versión de la librería.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }

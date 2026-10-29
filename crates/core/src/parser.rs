@@ -1,6 +1,5 @@
-//! Parser JSON que construye el arena directamente, sin árbol intermedio.
-//! Es iterativo (pila explícita): la profundidad de anidamiento no está limitada
-//! por la pila del hilo.
+//! JSON parser that builds the arena directly. Iterative (explicit stack), so nesting
+//! depth is not bounded by the thread stack.
 
 use crate::decode::unescape;
 use crate::document::{Document, Kind, Node, NodeId, Span, flags};
@@ -10,17 +9,15 @@ use crate::source::Source;
 
 use std::borrow::Cow;
 
-/// Los rangos se guardan como `u32`.
+/// Spans are stored as `u32`.
 const MAX_SOURCE_LEN: usize = u32::MAX as usize;
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
-/// Modo de parseo.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
-    /// JSON estándar (RFC 8259).
     #[default]
     Strict,
-    /// Acepta además comentarios `//` y `/* */` y comas finales (JSONC).
+    /// Also accepts `//` and `/* */` comments and trailing commas (JSONC).
     Tolerant,
 }
 
@@ -29,7 +26,7 @@ pub struct ParseOptions {
     pub mode: Mode,
 }
 
-/// Construcción no estándar aceptada en modo tolerante.
+/// Non-standard construct accepted in tolerant mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FixKind {
     LineComment,
@@ -37,24 +34,21 @@ pub enum FixKind {
     TrailingComma,
 }
 
-/// Fragmento del texto original que habría que quitar para obtener JSON estándar.
+/// Fragment of the source text to remove to get standard JSON.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fix {
     pub kind: FixKind,
     pub span: Span,
 }
 
-/// Resultado de un parseo correcto.
 #[derive(Debug)]
 pub struct Parsed {
     pub document: Document,
-    /// Construcciones no estándar encontradas (solo en modo tolerante).
     pub fixes: Vec<Fix>,
 }
 
 impl Parsed {
-    /// Texto original sin comentarios ni comas finales ("autocorregir").
-    /// `None` si el documento ya era JSON estándar.
+    /// Source text without comments or trailing commas; `None` if it was already standard JSON.
     pub fn autocorrected(&self) -> Option<String> {
         if self.fixes.is_empty() {
             return None;
@@ -73,7 +67,6 @@ impl Parsed {
     }
 }
 
-/// Parsea un documento JSON.
 pub fn parse(source: impl Into<Source>, options: &ParseOptions) -> Result<Parsed, ParseError> {
     let source = source.into();
     let tolerant = options.mode == Mode::Tolerant;
@@ -84,15 +77,14 @@ pub fn parse(source: impl Into<Source>, options: &ParseOptions) -> Result<Parsed
     })
 }
 
-/// Contenedor abierto en la pila del parser.
 struct Frame {
     id: NodeId,
     last_child: NodeId,
     child_count: u32,
     object: bool,
-    /// Ya se leyó al menos un elemento (el siguiente debe ir precedido de `,`).
+    /// At least one element was read (the next must be preceded by `,`).
     has_value: bool,
-    /// Acumulador del hash: suma de miembros (objetos) o hash encadenado (arrays).
+    /// Hash accumulator: sum of members (objects) or chained hash (arrays).
     acc: u64,
 }
 
@@ -103,7 +95,7 @@ struct Parser<'a> {
     nodes: Vec<Node>,
     stack: Vec<Frame>,
     fixes: Vec<Fix>,
-    /// Buffer reutilizable para la forma canónica de los números.
+    /// Reusable buffer for the canonical form of numbers.
     scratch: Vec<u8>,
 }
 
@@ -123,7 +115,7 @@ impl<'a> Parser<'a> {
             bytes,
             pos: if bytes.starts_with(BOM) { BOM.len() } else { 0 },
             tolerant,
-            // Estimación barata para evitar la mayoría de realocaciones.
+            // Cheap estimate to avoid most reallocations.
             nodes: Vec::with_capacity(bytes.len() / 16),
             stack: Vec::new(),
             fixes: Vec::new(),
@@ -161,7 +153,7 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     _ => {
-                        let expected = if object { "',' o '}'" } else { "',' o ']'" };
+                        let expected = if object { "',' or '}'" } else { "',' or ']'" };
                         return Err(self.unexpected(expected));
                     }
                 }
@@ -195,7 +187,6 @@ impl<'a> Parser<'a> {
         ParseError::new(kind, offset, self.bytes)
     }
 
-    /// Error en la posición actual: fin del texto o carácter inesperado.
     fn unexpected(&self, expected: &'static str) -> ParseError {
         let kind = match self.char_at(self.pos) {
             Some(found) => ErrorKind::UnexpectedChar { found, expected },
@@ -228,7 +219,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Consume un comentario que empieza en la posición actual (solo modo tolerante).
     fn comment(&mut self) -> Result<(), ParseError> {
         let start = self.pos;
         if !self.tolerant {
@@ -236,7 +226,7 @@ impl<'a> Parser<'a> {
         }
         let body = self.bytes.get(start + 2..).unwrap_or_default();
         let (kind, end) = if self.bytes.get(start + 1) == Some(&b'/') {
-            // El salto de línea no forma parte del comentario.
+            // The newline is not part of the comment.
             let len = body.iter().position(|&c| c == b'\n').unwrap_or(body.len());
             (FixKind::LineComment, start + 2 + len)
         } else {
@@ -253,10 +243,9 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Lee `"clave" :` y deja la posición al inicio del valor.
     fn member_key(&mut self) -> Result<(Span, u8), ParseError> {
         if self.peek() != Some(b'"') {
-            return Err(self.unexpected("una clave entre comillas"));
+            return Err(self.unexpected("a quoted key"));
         }
         let (key, escaped) = self.string()?;
         self.skip_ws()?;
@@ -269,7 +258,7 @@ impl<'a> Parser<'a> {
         Ok((key, key_flags))
     }
 
-    /// Lee un valor. Los contenedores quedan abiertos en la pila.
+    /// Containers are left open on the stack.
     fn value(&mut self, key: Span, key_flags: u8) -> Result<(), ParseError> {
         let start = self.pos;
         match self.peek() {
@@ -320,12 +309,11 @@ impl<'a> Parser<'a> {
                 let h = hash::number(raw, &mut self.scratch);
                 self.push_scalar(Kind::Number, key_flags, key, span, h)?;
             }
-            _ => return Err(self.unexpected("un valor")),
+            _ => return Err(self.unexpected("a value")),
         }
         Ok(())
     }
 
-    /// Añade un valor escalar (hash ya conocido) y lo suma al hash del contenedor.
     fn push_scalar(
         &mut self,
         kind: Kind,
@@ -342,7 +330,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Incorpora el hash de un hijo terminado al acumulador del contenedor abierto.
     fn fold_into_parent(&mut self, key: Span, key_flags: u8, child: u64) {
         let Some(frame) = self.stack.last_mut() else {
             return;
@@ -360,7 +347,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Añade un nodo al arena y lo enlaza como último hijo del contenedor abierto.
     fn push_node(
         &mut self,
         kind: Kind,
@@ -407,7 +393,6 @@ impl<'a> Parser<'a> {
         Ok(id)
     }
 
-    /// Consume `}` o `]`, cierra el contenedor de la cima y calcula su hash.
     fn close_container(&mut self) {
         self.pos += 1;
         let Some(frame) = self.stack.pop() else {
@@ -437,7 +422,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Lee un string empezando en `"`. Devuelve el rango sin comillas y si tiene escapes.
+    /// Returns the span without quotes and whether it contains escapes.
     fn string(&mut self) -> Result<(Span, bool), ParseError> {
         let open = self.pos;
         let start = open + 1;
@@ -459,7 +444,6 @@ impl<'a> Parser<'a> {
         Ok((Span::new(start, i), escaped))
     }
 
-    /// Valida la secuencia de escape que empieza en `i` y devuelve la posición siguiente.
     fn escape(&self, i: usize) -> Result<usize, ParseError> {
         match self.bytes.get(i + 1) {
             Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => Ok(i + 2),
@@ -493,7 +477,6 @@ impl<'a> Parser<'a> {
             .try_fold(0, |acc, &c| Some(acc * 16 + char::from(c).to_digit(16)?))
     }
 
-    /// Lee un número según la gramática de RFC 8259.
     fn number(&mut self) -> Result<Span, ParseError> {
         let start = self.pos;
         let mut i = start;
@@ -540,7 +523,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Decodifica un string del texto (ya validado por el parser).
 fn decode(raw: &[u8]) -> Cow<'_, str> {
     std::str::from_utf8(raw).map(unescape).unwrap_or_default()
 }
@@ -562,13 +544,13 @@ mod tests {
     fn doc(text: &str) -> Document {
         match parse(text, &strict()) {
             Ok(parsed) => parsed.document,
-            Err(e) => panic!("{text:?} debería parsear: {e}"),
+            Err(e) => panic!("{text:?} should parse: {e}"),
         }
     }
 
     fn err(text: &str) -> ParseError {
         match parse(text, &strict()) {
-            Ok(_) => panic!("{text:?} debería fallar"),
+            Ok(_) => panic!("{text:?} should fail"),
             Err(e) => e,
         }
     }
@@ -646,21 +628,21 @@ mod tests {
         assert_eq!(
             err("").kind,
             ErrorKind::UnexpectedEnd {
-                expected: "un valor"
+                expected: "a value"
             }
         );
         assert_eq!(
             err("[1 2]").kind,
             ErrorKind::UnexpectedChar {
                 found: '2',
-                expected: "',' o ']'"
+                expected: "',' or ']'"
             }
         );
         assert_eq!(
             err("{1:2}").kind,
             ErrorKind::UnexpectedChar {
                 found: '1',
-                expected: "una clave entre comillas"
+                expected: "a quoted key"
             }
         );
         assert_eq!(
@@ -673,7 +655,7 @@ mod tests {
         assert_eq!(
             err("[1").kind,
             ErrorKind::UnexpectedEnd {
-                expected: "',' o ']'"
+                expected: "',' or ']'"
             }
         );
         assert_eq!(err("1 2").kind, ErrorKind::TrailingContent);
@@ -685,7 +667,7 @@ mod tests {
             err("[,1]").kind,
             ErrorKind::UnexpectedChar {
                 found: ',',
-                expected: "un valor"
+                expected: "a value"
             }
         );
     }
@@ -703,7 +685,7 @@ mod tests {
     #[test]
     fn invalid_utf8_reports_offset() {
         let e = match parse(b"[\"a\xFF\"]".to_vec(), &strict()) {
-            Ok(_) => panic!("debería fallar"),
+            Ok(_) => panic!("should fail"),
             Err(e) => e,
         };
         assert_eq!(
@@ -714,11 +696,11 @@ mod tests {
 
     #[test]
     fn errors_report_line_and_column() {
-        let e = err("{\n  \"nombre\": \"Ana\",\n  \"edad\": 3x\n}");
-        assert_eq!((e.line, e.column), (3, 12));
+        let e = err("{\n  \"name\": \"Ann\",\n  \"age\": 3x\n}");
+        assert_eq!((e.line, e.column), (3, 11));
         assert_eq!(
             e.to_string(),
-            "línea 3, columna 12: carácter inesperado 'x': se esperaba ',' o '}'"
+            "line 3, column 11: unexpected character 'x': expected ',' or '}'"
         );
         let e = err("[\n  1,\n  2,\n]");
         assert_eq!((e.kind, e.line, e.column), (ErrorKind::TrailingComma, 3, 4));
@@ -735,13 +717,13 @@ mod tests {
     fn lenient(text: &str) -> Parsed {
         match parse(text, &tolerant()) {
             Ok(parsed) => parsed,
-            Err(e) => panic!("{text:?} debería parsear en modo tolerante: {e}"),
+            Err(e) => panic!("{text:?} should parse in tolerant mode: {e}"),
         }
     }
 
     #[test]
     fn tolerant_accepts_jsonc() {
-        let text = "// cabecera\n{\n  \"a\": [1, 2,], /* nota */\n  \"b\": {\"c\": 3,},\n}\n";
+        let text = "// header\n{\n  \"a\": [1, 2,], /* note */\n  \"b\": {\"c\": 3,},\n}\n";
         let parsed = lenient(text);
         let d = &parsed.document;
         let members: Vec<_> = d.children(d.root()).collect();
@@ -758,8 +740,8 @@ mod tests {
                 FixKind::TrailingComma,
             ]
         );
-        assert_eq!(d.text(parsed.fixes[0].span), "// cabecera");
-        assert_eq!(d.text(parsed.fixes[2].span), "/* nota */");
+        assert_eq!(d.text(parsed.fixes[0].span), "// header");
+        assert_eq!(d.text(parsed.fixes[2].span), "/* note */");
     }
 
     #[test]
@@ -781,29 +763,29 @@ mod tests {
     #[test]
     fn tolerant_still_rejects_real_errors() {
         let e = |text: &str| match parse(text, &tolerant()) {
-            Ok(_) => panic!("{text:?} debería fallar"),
+            Ok(_) => panic!("{text:?} should fail"),
             Err(e) => e.kind,
         };
         assert_eq!(
             e("[1,,2]"),
             ErrorKind::UnexpectedChar {
                 found: ',',
-                expected: "un valor"
+                expected: "a value"
             }
         );
         assert_eq!(
             e("[,]"),
             ErrorKind::UnexpectedChar {
                 found: ',',
-                expected: "un valor"
+                expected: "a value"
             }
         );
-        assert_eq!(e("/* sin cerrar"), ErrorKind::UnterminatedComment);
+        assert_eq!(e("/* unclosed"), ErrorKind::UnterminatedComment);
     }
 
     #[test]
     fn tolerant_accepts_comment_after_value() {
-        let parsed = lenient("[1] // fin");
+        let parsed = lenient("[1] // end");
         assert_eq!(parsed.autocorrected().as_deref(), Some("[1] "));
     }
 }

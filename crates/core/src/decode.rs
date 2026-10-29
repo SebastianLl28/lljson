@@ -1,11 +1,8 @@
-//! Decodificación bajo demanda de strings JSON con escapes.
-
 use std::borrow::Cow;
 use std::str::Chars;
 
-/// Decodifica las secuencias de escape de un string JSON (sin comillas).
-/// Sin escapes devuelve el mismo texto sin copiar. Las secuencias inválidas,
-/// que el parser ya rechaza, se sustituyen por U+FFFD en lugar de fallar.
+/// Decodes JSON escapes (string given without quotes); borrows when there are none.
+/// Invalid sequences (already rejected by the parser) become U+FFFD instead of failing.
 pub(crate) fn unescape(raw: &str) -> Cow<'_, str> {
     if !raw.contains('\\') {
         return Cow::Borrowed(raw);
@@ -39,7 +36,6 @@ pub(crate) fn unescape(raw: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// Lee los 4 dígitos de un `\u` (y la segunda mitad si es un par de surrogates).
 fn unicode_escape(chars: &mut Chars<'_>) -> Option<char> {
     let unit = hex4(chars)?;
     if !(0xD800..=0xDBFF).contains(&unit) {
@@ -71,7 +67,7 @@ mod tests {
 
     #[test]
     fn plain_text_is_borrowed() {
-        assert!(matches!(unescape("hola"), Cow::Borrowed("hola")));
+        assert!(matches!(unescape("hello"), Cow::Borrowed("hello")));
     }
 
     #[test]

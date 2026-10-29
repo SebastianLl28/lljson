@@ -1,4 +1,4 @@
-//! Benchmark del diff con ~1 millón de nodos por documento (generador de `core`).
+//! Diff benchmark with ~1 million nodes per document (from the `core` generator).
 
 use std::hint::black_box;
 use std::time::Duration;
@@ -14,10 +14,10 @@ fn doc(changes: Changes) -> Document {
         changes,
         ..GenerateOptions::default()
     };
-    let text = generate(&options).expect("generar el documento");
+    let text = generate(&options).expect("generate the document");
     match parse(text, &ParseOptions::default()) {
         Ok(parsed) => parsed.document,
-        Err(e) => panic!("el JSON generado debería ser válido: {e}"),
+        Err(e) => panic!("generated JSON should be valid: {e}"),
     }
 }
 
@@ -34,12 +34,12 @@ fn bench(c: &mut Criterion) {
         removed: 2,
         added: 1,
     });
-    // Un solo registro insertado cerca del principio: desplaza todos los índices.
+    // One record inserted near the start shifts every index.
     let shifted = doc(Changes {
         added: 1,
         ..Changes::default()
     });
-    eprintln!("nodos por documento: {}", base.node_count());
+    eprintln!("nodes per document: {}", base.node_count());
 
     let defaults = DiffOptions::default();
     let keyed = DiffOptions {
@@ -49,24 +49,24 @@ fn bench(c: &mut Criterion) {
     let ignoring = DiffOptions {
         ignore: vec![
             IgnoreRule::Key("score".to_owned()),
-            IgnoreRule::parse("$[*].address.zip").expect("regla válida"),
+            IgnoreRule::parse("$[*].address.zip").expect("valid rule"),
         ],
         ..DiffOptions::default()
     };
     let cases = [
-        ("identicos", &same, &defaults),
-        ("10_cambios", &few, &defaults),
-        ("10_cambios_mixtos_por_clave", &mixed, &keyed),
-        ("10_cambios_ignorando_rutas", &few, &ignoring),
-        ("insercion_al_inicio_por_indice", &shifted, &defaults),
-        ("insercion_al_inicio_por_clave", &shifted, &keyed),
+        ("identical", &same, &defaults),
+        ("10_changes", &few, &defaults),
+        ("10_mixed_changes_by_key", &mixed, &keyed),
+        ("10_changes_ignoring_paths", &few, &ignoring),
+        ("insertion_at_start_by_index", &shifted, &defaults),
+        ("insertion_at_start_by_key", &shifted, &keyed),
     ];
     for (name, right, options) in cases {
         let summary = diff(&base, right, options).summary();
         eprintln!("{name}: {summary:?}");
     }
 
-    let mut group = c.benchmark_group("diff_1m_nodos");
+    let mut group = c.benchmark_group("diff_1m_nodes");
     group.sample_size(20);
     group.measurement_time(Duration::from_secs(8));
     for (name, right, options) in cases {

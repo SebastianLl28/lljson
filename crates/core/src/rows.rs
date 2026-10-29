@@ -1,41 +1,36 @@
-//! Lista plana de filas visibles para la vista lado a lado.
+//! Flat list of visible rows for the side-by-side view.
 //!
-//! Cada fila alinea un nodo del documento izquierdo con uno del derecho, o deja un hueco
-//! de relleno en el lado que no lo tiene. Los hijos se emparejan con [`pair_children`]
-//! (como en el diff), así que los valores emparejados quedan en la misma fila en ambos
-//! paneles. La vista virtualizada solo consulta las filas visibles.
-//!
-//! Expandir o colapsar modifica únicamente esta lista (un `splice`), nunca el árbol.
-//! La construcción es iterativa: la profundidad no está limitada por la pila del hilo.
+//! Each row aligns a left node with a right node, or leaves filler on the side that lacks
+//! one. Children are paired with [`pair_children`], as in the diff. Expanding or collapsing
+//! only splices this list, never the tree. Construction is iterative, so depth is not
+//! limited by the thread stack.
 
 use std::borrow::Cow;
 
 use crate::diff::{DiffOptions, DiffResult, DiffStatus, pair_children};
 use crate::document::{Document, Kind, Node, NodeId};
 
-/// Caracteres máximos del valor de un string en una fila.
+/// Maximum characters of a string value shown in a row.
 pub const MAX_VALUE_CHARS: usize = 1000;
 
-/// Qué muestra una fila para un nodo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RowKind {
-    /// Escalar, contenedor vacío o contenedor colapsado: una sola fila.
+    /// Scalar, empty container or collapsed container: a single row.
     Leaf,
-    /// Apertura de un contenedor expandido (`"clave": {`).
+    /// Opening line of an expanded container (`"key": {`).
     Open,
-    /// Cierre de un contenedor expandido (`}`).
+    /// Closing line of an expanded container (`}`).
     Close,
 }
 
-/// Lo que muestra un lado de una fila.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub node: NodeId,
     pub kind: RowKind,
 }
 
-/// Una fila alineada. Ocupa 12 bytes.
+/// An aligned row (12 bytes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Row {
     left: NodeId,
@@ -57,7 +52,7 @@ impl Row {
         }
     }
 
-    /// Contenido del lado izquierdo, o `None` si es una fila de relleno en ese lado.
+    /// Left side, or `None` if that side is filler.
     pub fn left(&self) -> Option<Cell> {
         (!self.left.is_none()).then_some(Cell {
             node: self.left,
@@ -65,7 +60,7 @@ impl Row {
         })
     }
 
-    /// Contenido del lado derecho, o `None` si es una fila de relleno en ese lado.
+    /// Right side, or `None` if that side is filler.
     pub fn right(&self) -> Option<Cell> {
         (!self.right.is_none()).then_some(Cell {
             node: self.right,
@@ -73,7 +68,7 @@ impl Row {
         })
     }
 
-    /// Profundidad de anidamiento (0 para la raíz). Se satura en `u16::MAX`.
+    /// Nesting depth (0 for the root); saturates at `u16::MAX`.
     pub fn depth(&self) -> u16 {
         self.depth
     }
@@ -83,22 +78,21 @@ impl Row {
     }
 }
 
-/// Sentido de la búsqueda de diferencias.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Forward,
     Backward,
 }
 
-/// Fila de una diferencia encontrada por [`Rows::find_change`].
+/// Row of a difference found by [`Rows::find_change`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChangeStop {
     pub position: usize,
-    /// La búsqueda dio la vuelta al principio o al final de la lista.
+    /// The search wrapped around the start or end of the list.
     pub wrapped: bool,
 }
 
-/// El estado marca el subárbol completo (sus descendientes tienen el mismo estado).
+/// The status marks the whole subtree (descendants share it).
 fn fills_subtree(status: DiffStatus) -> bool {
     matches!(
         status,
@@ -106,8 +100,8 @@ fn fills_subtree(status: DiffStatus) -> bool {
     )
 }
 
-/// Cambio en la lista tras expandir o colapsar: en `position` se quitaron `removed` filas
-/// y se pusieron `added` (lo que necesita `GListModel::items_changed`).
+/// List change after expand/collapse: `removed` rows at `position` were replaced by `added`
+/// (what `GListModel::items_changed` needs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Splice {
     pub position: usize,
@@ -115,10 +109,9 @@ pub struct Splice {
     pub added: usize,
 }
 
-/// Filas visibles de uno o dos documentos.
+/// Visible rows of one or two documents.
 ///
-/// Los métodos que reciben los documentos deben recibir siempre los mismos con los que
-/// se construyó la lista.
+/// Methods taking documents must always receive the ones the list was built with.
 #[derive(Debug, Default)]
 pub struct Rows {
     rows: Vec<Row>,
@@ -133,16 +126,14 @@ enum Task {
 }
 
 impl Rows {
-    /// Construye la lista con todo expandido. `options` decide cómo se emparejan los
-    /// elementos de los arrays (por índice o por clave).
+    /// Builds the list fully expanded. `options` decides how array elements are paired.
     pub fn new(left: Option<&Document>, right: Option<&Document>, options: DiffOptions) -> Rows {
         Rows::build(left, right, options, None)
     }
 
-    /// Como [`Rows::new`], pero con colapsadas las secciones iguales: cada contenedor no
-    /// vacío que el diff marca como igual en ambos lados y que no está dentro de otro
-    /// igual. Al expandir una, su contenido aparece expandido.
-    /// `diff` debe ser el resultado de comparar `left` con `right`.
+    /// Like [`Rows::new`], but with equal sections collapsed: each non-empty container the
+    /// diff marks equal that is not inside another equal one. Expanding one shows its
+    /// content expanded. `diff` must be the result of comparing `left` with `right`.
     pub fn with_equal_collapsed(
         left: &Document,
         right: &Document,
@@ -188,8 +179,8 @@ impl Rows {
         self.rows.get(index).copied()
     }
 
-    /// `Some(true)` si la fila abre un contenedor expandido, `Some(false)` si muestra un
-    /// contenedor no vacío colapsado y `None` si no se puede expandir ni colapsar.
+    /// `Some(true)` if the row opens an expanded container, `Some(false)` if it shows a
+    /// collapsed non-empty one, `None` if it can be neither expanded nor collapsed.
     pub fn is_expanded(
         &self,
         index: usize,
@@ -206,8 +197,8 @@ impl Rows {
         (collapsed(row.left(), left) || collapsed(row.right(), right)).then_some(false)
     }
 
-    /// Expande o colapsa el contenedor de la fila `index`. Las filas de cierre y las que
-    /// no muestran un contenedor no vacío no cambian (`None`).
+    /// Expands or collapses the container at row `index`. Closing rows and rows without a
+    /// non-empty container are unchanged (`None`).
     pub fn toggle(
         &mut self,
         index: usize,
@@ -263,13 +254,12 @@ impl Rows {
         }
     }
 
-    /// Busca la diferencia más cercana a `from` (`None`: desde el principio al avanzar o
-    /// desde el final al retroceder) y da la vuelta si no hay más en esa dirección.
+    /// Finds the difference nearest to `from` (`None`: start when going forward, end when
+    /// going backward), wrapping around if there are no more in that direction.
     ///
-    /// Un subárbol añadido, eliminado o con cambio de tipo cuenta como una sola parada
-    /// (su primera fila), y un contenedor colapsado con cambios dentro también.
-    /// Devuelve `None` si no hay ninguna diferencia visible. Recorre la lista en tiempo
-    /// lineal; `diff` debe ser el resultado de comparar `left` con `right`.
+    /// An added, removed or type-changed subtree is a single stop (its first row), as is a
+    /// collapsed container with changes inside. `None` if no difference is visible. Linear
+    /// time; `diff` must be the result of comparing `left` with `right`.
     pub fn find_change(
         &self,
         from: Option<usize>,
@@ -282,7 +272,7 @@ impl Rows {
         if len == 0 {
             return None;
         }
-        // Posición virtual de partida y paso; fuera de `0..len` significa que dio la vuelta.
+        // Virtual start position and step; outside `0..len` means it wrapped.
         let (start, step): (i64, i64) = match (direction, from) {
             (Direction::Forward, Some(p)) => (p as i64 + 1, 1),
             (Direction::Forward, None) => (0, 1),
@@ -302,7 +292,6 @@ impl Rows {
         })
     }
 
-    /// Filas del par `(l, r)` y sus descendientes según el estado de colapso actual.
     fn emit(
         &self,
         left: Option<&Document>,
@@ -324,8 +313,8 @@ impl Rows {
             let lk = open_kind(left, l, &self.collapsed_left);
             let rk = open_kind(right, r, &self.collapsed_right);
             if !l.is_none() && !r.is_none() && lk != rk && (lk.is_some() || rk.is_some()) {
-                // No se pueden alinear línea a línea (p. ej. objeto frente a array):
-                // primero el subárbol izquierdo y después el derecho.
+                // Cannot be aligned line by line (e.g. object vs array): left subtree first,
+                // then the right one.
                 stack.push(Task::Visit(NodeId::NONE, r, depth));
                 stack.push(Task::Visit(l, NodeId::NONE, depth));
                 continue;
@@ -358,8 +347,8 @@ impl Rows {
     }
 }
 
-/// La celda es el comienzo de una diferencia: un cambio que no está dentro de otro
-/// subárbol ya marcado, o un contenedor colapsado con cambios dentro.
+/// The cell starts a difference: a change not inside an already marked subtree, or a
+/// collapsed container with changes inside.
 fn is_change_start(
     cell: Option<Cell>,
     doc: Option<&Document>,
@@ -381,8 +370,8 @@ fn is_change_start(
     }
 }
 
-/// Marca como colapsados los contenedores no vacíos con estado `Equal` cuyo padre no es
-/// `Equal` (solo el más externo de cada sección igual).
+/// Collapses non-empty `Equal` containers whose parent is not `Equal` (only the outermost
+/// of each equal section).
 fn collapse_equal_sections(
     doc: &Document,
     collapsed: &mut [bool],
@@ -402,7 +391,6 @@ fn collapse_equal_sections(
     }
 }
 
-/// Tipo del contenedor si se muestra expandido (no vacío y no colapsado).
 fn open_kind(doc: Option<&Document>, id: NodeId, collapsed: &[bool]) -> Option<Kind> {
     if !is_non_empty_container(doc, id) || collapsed.get(id.index()).copied().unwrap_or(false) {
         return None;
@@ -421,7 +409,7 @@ fn set(flags: &mut [bool], id: NodeId, value: bool) {
     }
 }
 
-/// Categoría de un fragmento de texto, para los colores de sintaxis.
+/// Category of a text fragment, for syntax colors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenKind {
     Punctuation,
@@ -431,20 +419,19 @@ pub enum TokenKind {
     Null,
 }
 
-/// Texto de un lado de una fila: `clave: valor,  resumen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellText<'a> {
-    /// Clave entre comillas, tal como está en el original (con sus escapes).
+    /// Quoted key exactly as in the source (escapes kept).
     pub key: Option<String>,
     pub value: Cow<'a, str>,
     pub value_kind: TokenKind,
-    /// Lleva coma detrás (tiene un hermano siguiente).
+    /// Followed by a comma (has a next sibling).
     pub comma: bool,
-    /// Resumen de un contenedor colapsado (`3 claves`, `1 elemento`).
+    /// Summary of a collapsed container (`3 keys`, `1 item`).
     pub summary: Option<String>,
 }
 
-/// Genera el texto de una celda. Los strings largos se recortan a [`MAX_VALUE_CHARS`].
+/// Builds the text of a cell. Long strings are truncated to [`MAX_VALUE_CHARS`].
 pub fn cell_text(doc: &Document, cell: Cell) -> CellText<'_> {
     let Some(node) = doc.node(cell.node) else {
         return CellText {
@@ -482,10 +469,10 @@ pub fn cell_text(doc: &Document, cell: Cell) -> CellText<'_> {
             };
             if count > 0 {
                 summary = Some(match (object, count) {
-                    (true, 1) => "1 clave".to_owned(),
-                    (true, n) => format!("{n} claves"),
-                    (false, 1) => "1 elemento".to_owned(),
-                    (false, n) => format!("{n} elementos"),
+                    (true, 1) => "1 key".to_owned(),
+                    (true, n) => format!("{n} keys"),
+                    (false, 1) => "1 item".to_owned(),
+                    (false, n) => format!("{n} items"),
                 });
             }
             (Cow::Borrowed(text), TokenKind::Punctuation)
@@ -518,11 +505,11 @@ mod tests {
 
     fn doc(text: &str) -> Document {
         parse(text, &ParseOptions::default())
-            .expect("JSON válido")
+            .expect("valid JSON")
             .document
     }
 
-    /// Texto de cada fila: `izquierda | derecha` (`·` para el relleno).
+    /// Text of each row: `left | right` (`·` for filler).
     fn render(rows: &Rows, left: Option<&Document>, right: Option<&Document>) -> Vec<String> {
         let side = |cell: Option<Cell>, doc: Option<&Document>| match (cell, doc) {
             (Some(cell), Some(doc)) => {
@@ -595,7 +582,7 @@ mod tests {
                 "{ | {",
                 "  \"a\": 1, | \"a\": 10,",
                 "  \"b\": 2, | ·",
-                // `d` va detrás de su predecesor en el derecho (`a`) y de los eliminados.
+                // `d` goes after its right predecessor (`a`) and the removed rows.
                 "  · | \"d\": 4",
                 "  \"c\": 3 | \"c\": 3,",
                 "} | }",
@@ -673,7 +660,7 @@ mod tests {
         let original = render(&rows, ld, rd);
         assert_eq!(rows.is_expanded(1, ld, rd), Some(true));
 
-        let splice = rows.toggle(1, ld, rd).expect("colapsar");
+        let splice = rows.toggle(1, ld, rd).expect("collapse");
         assert_eq!(
             splice,
             Splice {
@@ -693,7 +680,7 @@ mod tests {
         );
         assert_eq!(rows.is_expanded(1, ld, rd), Some(false));
 
-        let splice = rows.toggle(1, ld, rd).expect("expandir");
+        let splice = rows.toggle(1, ld, rd).expect("expand");
         assert_eq!(splice.added, original.len() - 3);
         assert_eq!(render(&rows, ld, rd), original);
     }
@@ -702,9 +689,9 @@ mod tests {
     fn nested_collapse_is_kept_when_parent_expands() {
         let d = doc(r#"{"a":{"b":[1,2]}}"#);
         let mut rows = Rows::new(Some(&d), None, DiffOptions::default());
-        rows.toggle(2, Some(&d), None).expect("colapsar b");
-        rows.toggle(1, Some(&d), None).expect("colapsar a");
-        rows.toggle(1, Some(&d), None).expect("expandir a");
+        rows.toggle(2, Some(&d), None).expect("collapse b");
+        rows.toggle(1, Some(&d), None).expect("collapse a");
+        rows.toggle(1, Some(&d), None).expect("expand a");
         assert_eq!(
             render(&rows, Some(&d), None),
             [
@@ -721,12 +708,12 @@ mod tests {
     fn collapse_root() {
         let d = doc("[1,2,3]");
         let mut rows = Rows::new(Some(&d), None, DiffOptions::default());
-        let splice = rows.toggle(0, Some(&d), None).expect("colapsar");
+        let splice = rows.toggle(0, Some(&d), None).expect("collapse");
         assert_eq!(splice.removed, 5);
         assert_eq!(rows.len(), 1);
-        let text = cell_text(&d, rows.get(0).and_then(|r| r.left()).expect("celda"));
+        let text = cell_text(&d, rows.get(0).and_then(|r| r.left()).expect("cell"));
         assert_eq!(text.value, "[…]");
-        assert_eq!(text.summary.as_deref(), Some("3 elementos"));
+        assert_eq!(text.summary.as_deref(), Some("3 items"));
     }
 
     #[test]
@@ -734,11 +721,7 @@ mod tests {
         let d = doc(r#"{"a":1,"b":[]}"#);
         let mut rows = Rows::new(Some(&d), None, DiffOptions::default());
         for index in [1, 2, 3, 99] {
-            assert_eq!(
-                rows.is_expanded(index, Some(&d), None),
-                None,
-                "fila {index}"
-            );
+            assert_eq!(rows.is_expanded(index, Some(&d), None), None, "row {index}");
             assert_eq!(rows.toggle(index, Some(&d), None), None);
         }
     }
@@ -749,8 +732,7 @@ mod tests {
         let r = doc(r#"{"a":5}"#);
         let (ld, rd) = (Some(&l), Some(&r));
         let mut rows = Rows::new(ld, rd, DiffOptions::default());
-        rows.toggle(1, ld, rd)
-            .expect("colapsar el objeto izquierdo");
+        rows.toggle(1, ld, rd).expect("collapse the left object");
         assert_eq!(render(&rows, ld, rd)[1], "  \"a\": {…} | ·");
     }
 
@@ -792,14 +774,14 @@ mod tests {
         assert_eq!(texts[2].value_kind, TokenKind::Bool);
         assert_eq!(texts[3].value_kind, TokenKind::Null);
         assert_eq!(texts[4].value, "{…}");
-        assert_eq!(texts[4].summary.as_deref(), Some("1 clave"));
+        assert_eq!(texts[4].summary.as_deref(), Some("1 key"));
         assert!(!texts[4].comma);
     }
 
     #[test]
     fn open_and_close_text() {
         let d = doc(r#"[{"a":1},2]"#);
-        let first = d.children(d.root()).next().expect("hijo");
+        let first = d.children(d.root()).next().expect("child");
         let open = cell_text(
             &d,
             Cell {
@@ -824,7 +806,7 @@ mod tests {
     #[test]
     fn long_strings_are_truncated() {
         let d = doc(&format!("[\"{}\"]", "é".repeat(5000)));
-        let id = d.children(d.root()).next().expect("hijo");
+        let id = d.children(d.root()).next().expect("child");
         let text = cell_text(
             &d,
             Cell {
@@ -836,7 +818,7 @@ mod tests {
         assert!(text.value.ends_with('…'));
     }
 
-    /// Posiciones de todas las paradas dando la vuelta una vez, y si alguna dio la vuelta.
+    /// Positions of consecutive stops (wrapping once), and whether each wrapped.
     fn stops(
         rows: &Rows,
         l: &Document,
@@ -862,7 +844,7 @@ mod tests {
         let l = doc(r#"{"a":1,"b":2,"c":3}"#);
         let r = doc(r#"{"a":10,"b":2,"c":30,"d":{"k":[1,2]}}"#);
         let rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
-        // Filas: 0 `{`, 1 a, 2 b, 3 c, 4 `d: {` (subárbol añadido: una sola parada), …
+        // Rows: 0 `{`, 1 a, 2 b, 3 c, 4 `d: {` (added subtree: a single stop), ...
         let (forward, wraps) = stops(&rows, &l, &r, Direction::Forward);
         assert_eq!(forward, [1, 3, 4, 1]);
         assert_eq!(wraps, [false, false, false, true]);
@@ -928,7 +910,7 @@ mod tests {
         let l = doc(r#"{"a":[1,2]}"#);
         let r = doc(r#"{"a":"s"}"#);
         let rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
-        // 0 `{`, 1 `a: [` (solo izq.), 2 `1`, 3 `2`, 4 `]`, 5 `a: "s"` (solo der.), 6 `}`
+        // 0 `{`, 1 `a: [` (left only), 2 `1`, 3 `2`, 4 `]`, 5 `a: "s"` (right only), 6 `}`
         assert_eq!(stops(&rows, &l, &r, Direction::Forward).0, [1, 5, 1, 5]);
     }
 
@@ -959,7 +941,7 @@ mod tests {
         let l = doc(r#"{"same":{"a":1,"b":[1,2]},"diff":{"x":1},"s":5}"#);
         let r = doc(r#"{"same":{"a":1,"b":[1,2]},"diff":{"x":2},"s":5}"#);
         let rows = equal_collapsed(&l, &r);
-        // `{`, `same` colapsado, `diff` abierto con `x`, cierre de `diff`, `s`, `}`.
+        // `{`, collapsed `same`, open `diff` with `x`, close of `diff`, `s`, `}`.
         assert_eq!(rows.len(), 7);
         assert_eq!(rows.is_expanded(1, Some(&l), Some(&r)), Some(false));
         assert_eq!(rows.is_expanded(2, Some(&l), Some(&r)), Some(true));
@@ -973,9 +955,9 @@ mod tests {
         let r = doc(r#"{"same":{"a":1,"b":[1,2]},"x":2}"#);
         let mut rows = equal_collapsed(&l, &r);
         assert_eq!(rows.len(), 4);
-        let splice = rows.toggle(1, Some(&l), Some(&r)).expect("expandir");
+        let splice = rows.toggle(1, Some(&l), Some(&r)).expect("expand");
         assert_eq!(splice.removed, 1);
-        // `same` { a, b [1, 2] } -> 7 filas; `b` no queda colapsado.
+        // `same` { a, b [1, 2] } -> 7 rows; `b` stays expanded.
         assert_eq!(splice.added, 7);
         assert_eq!(rows.is_expanded(3, Some(&l), Some(&r)), Some(true));
     }
@@ -1004,7 +986,7 @@ mod tests {
         let l = doc(r#"[{"id":1,"v":1},{"id":2,"v":2}]"#);
         let r = doc(r#"[{"id":1,"v":1},{"id":2,"v":3}]"#);
         let rows = equal_collapsed(&l, &r);
-        // `[`, `{…}` igual colapsado, `{` abierto, id, v, `}`, `]`
+        // `[`, collapsed equal `{…}`, open `{`, id, v, `}`, `]`
         assert_eq!(rows.len(), 7);
         assert_eq!(rows.is_expanded(1, Some(&l), Some(&r)), Some(false));
     }

@@ -1,5 +1,4 @@
-//! Tests de integración del parser: comparación con serde_json como referencia,
-//! invariantes del arena y casos extremos.
+//! Parser integration tests: serde_json as reference, arena invariants and edge cases.
 
 use lljson_core::{Document, ErrorKind, Kind, Mode, NodeId, ParseOptions, Parsed, Source, parse};
 use serde_json::Value;
@@ -17,11 +16,11 @@ fn tolerant() -> ParseOptions {
 fn parse_ok(text: &str, options: &ParseOptions) -> Parsed {
     match parse(text, options) {
         Ok(parsed) => parsed,
-        Err(e) => panic!("{text:?} debería parsear: {e}"),
+        Err(e) => panic!("{text:?} should parse: {e}"),
     }
 }
 
-/// Convierte un nodo a `serde_json::Value` (recursivo: solo para documentos poco profundos).
+/// Recursive: only for shallow documents.
 fn to_value(doc: &Document, id: NodeId) -> Value {
     match doc.kind(id) {
         Some(Kind::Null) | None => Value::Null,
@@ -44,7 +43,6 @@ fn to_value(doc: &Document, id: NodeId) -> Value {
     }
 }
 
-/// Comprueba las invariantes estructurales del arena.
 fn check_invariants(doc: &Document) {
     let root = doc.root();
     assert_eq!(doc.node(root).and_then(|n| n.parent()), None);
@@ -54,14 +52,14 @@ fn check_invariants(doc: &Document) {
         assert_eq!(
             children.len() as u32,
             node.child_count(),
-            "child_count del nodo {index}"
+            "child_count of node {index}"
         );
         assert!(node.kind().is_container() || children.is_empty());
         let mut previous = index;
         for child in children {
-            let child_node = doc.node(child).expect("hijo existente");
+            let child_node = doc.node(child).expect("existing child");
             assert_eq!(child_node.parent(), Some(id));
-            assert!(child.index() > previous, "los hijos van en preorden");
+            assert!(child.index() > previous, "children are in preorder");
             previous = child.index();
             assert_eq!(child_node.key_span().is_some(), node.kind() == Kind::Object);
         }
@@ -74,10 +72,10 @@ const VALID: &[&str] = &[
     "-0.0",
     "1.5e-10",
     "123456789012345678901234567890",
-    // `1e400` es JSON válido pero serde_json lo rechaza (no cabe en f64);
-    // se cubre en `numbers_keep_their_exact_text`.
+    // `1e400` is valid JSON but serde_json rejects it (overflows f64);
+    // covered in `numbers_keep_their_exact_text`.
     r#""""#,
-    r#""texto""#,
+    r#""text""#,
     "true",
     "false",
     "null",
@@ -85,13 +83,13 @@ const VALID: &[&str] = &[
     "{}",
     "  \r\n\t [ \r\n ] \n",
     "[[[[[]]]]]",
-    r#"[1, "dos", 3.0, true, false, null, [], {}]"#,
+    r#"[1, "two", 3.0, true, false, null, [], {}]"#,
     r#"{"a": {"b": {"c": [1, {"d": null}]}}}"#,
-    r#"{"": "clave vacía", " ": "espacio"}"#,
+    r#"{"": "empty key", " ": "space"}"#,
     r#"{"ñandú": "ü", "中文": "日本語", "emoji": "😀🎉"}"#,
     r#"{"esc\u0061pe": "\u00e9\u4e2d\ud83d\ude00", "nul": "\u0000"}"#,
     r#"["\"", "\\", "\/", "\b", "\f", "\n", "\r", "\t"]"#,
-    r#"["// no es comentario", "/* tampoco */"]"#,
+    r#"["// not a comment", "/* neither */"]"#,
     "{\r\n  \"crlf\": [1,\r\n 2]\r\n}",
 ];
 
@@ -101,10 +99,10 @@ fn matches_serde_json_on_valid_documents() {
         for options in [strict(), tolerant()] {
             let parsed = parse_ok(text, &options);
             check_invariants(&parsed.document);
-            assert!(parsed.fixes.is_empty(), "{text:?} no tiene correcciones");
+            assert!(parsed.fixes.is_empty(), "{text:?} has no fixes");
             let expected: Value = match serde_json::from_str(text) {
                 Ok(v) => v,
-                Err(e) => panic!("serde_json debería aceptar {text:?}: {e}"),
+                Err(e) => panic!("serde_json should accept {text:?}: {e}"),
             };
             let doc = &parsed.document;
             assert_eq!(to_value(doc, doc.root()), expected, "{text:?}");
@@ -147,15 +145,15 @@ const INVALID: &[&str] = &[
     "tru",
     "nul",
     "True",
-    r#""sin cerrar"#,
-    "\"tab\tcrudo\"",
+    r#""unclosed"#,
+    "\"tab\traw\"",
     r#""\x""#,
     r#""\u12""#,
     r#""\ud800""#,
     r#""\udc00x""#,
     "1 2",
     "[] []",
-    "// comentario\n1",
+    "// comment\n1",
     "/* c */ 1",
 ];
 
@@ -164,10 +162,10 @@ fn rejects_what_serde_json_rejects() {
     for text in INVALID {
         assert!(
             serde_json::from_str::<Value>(text).is_err(),
-            "serde_json acepta {text:?}"
+            "serde_json accepts {text:?}"
         );
         let e = match parse(*text, &strict()) {
-            Ok(_) => panic!("{text:?} debería fallar"),
+            Ok(_) => panic!("{text:?} should fail"),
             Err(e) => e,
         };
         assert!(e.offset <= text.len());
@@ -191,15 +189,15 @@ fn deep_nesting_does_not_overflow_the_stack() {
     assert_eq!(
         e,
         Some(ErrorKind::UnexpectedEnd {
-            expected: "un valor"
+            expected: "a value"
         })
     );
 }
 
 const SAMPLE: &str = r#"{
-  "usuarios": [
-    {"id": 1, "nombre": "Ana", "tags": ["a", "b"], "activo": true},
-    {"id": 2, "nombre": "Luis \"Lucho\"", "extra": null, "puntos": -12.5e3}
+  "users": [
+    {"id": 1, "name": "Ann", "tags": ["a", "b"], "active": true},
+    {"id": 2, "name": "Luis \"Lucho\"", "extra": null, "points": -12.5e3}
   ],
   "total": 2
 }"#;
@@ -213,7 +211,7 @@ fn every_truncated_prefix_fails_cleanly() {
         for options in [strict(), tolerant()] {
             assert!(
                 parse(prefix, &options).is_err(),
-                "el prefijo de {end} bytes debería fallar"
+                "the {end}-byte prefix should fail"
             );
         }
     }
@@ -240,7 +238,7 @@ fn corrupted_bytes_never_panic() {
 
 #[test]
 fn tolerant_mode_round_trips_through_autocorrect() {
-    let text = "{\n  // usuarios\n  \"a\": [1, 2, /* tres */ 3,],\n  \"b\": {\"c\": true,},\n}\n";
+    let text = "{\n  // users\n  \"a\": [1, 2, /* three */ 3,],\n  \"b\": {\"c\": true,},\n}\n";
     assert!(parse(text, &strict()).is_err());
     let parsed = parse_ok(text, &tolerant());
     check_invariants(&parsed.document);
@@ -262,23 +260,23 @@ fn parses_large_file_through_mmap() {
         if i > 0 {
             text.push(',');
         }
-        text.push_str(&format!(r#"{{"id":{i},"v":"valor {i}"}}"#));
+        text.push_str(&format!(r#"{{"id":{i},"v":"value {i}"}}"#));
     }
     text.push(']');
-    assert!(text.len() > 1024 * 1024, "debe superar el umbral de mmap");
+    assert!(text.len() > 1024 * 1024, "must exceed the mmap threshold");
     let path = std::env::temp_dir().join(format!("lljson-mmap-{}.json", std::process::id()));
-    std::fs::write(&path, &text).expect("escribir archivo temporal");
-    let source = Source::from_file(&path).expect("abrir archivo");
+    std::fs::write(&path, &text).expect("write temp file");
+    let source = Source::from_file(&path).expect("open file");
     assert!(matches!(source, Source::Mapped(_)));
     let parsed = match parse(source, &strict()) {
         Ok(p) => p,
-        Err(e) => panic!("debería parsear: {e}"),
+        Err(e) => panic!("should parse: {e}"),
     };
     let _ = std::fs::remove_file(&path);
     let doc = &parsed.document;
     assert_eq!(doc.node_count(), 1 + 60_000 * 3);
     check_invariants(doc);
-    let last = doc.children(doc.root()).last().expect("último elemento");
-    let value = doc.children(last).nth(1).expect("campo v");
-    assert_eq!(doc.string(value).as_deref(), Some("valor 59999"));
+    let last = doc.children(doc.root()).last().expect("last element");
+    let value = doc.children(last).nth(1).expect("field v");
+    assert_eq!(doc.string(value).as_deref(), Some("value 59999"));
 }

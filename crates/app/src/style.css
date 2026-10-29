@@ -1,4 +1,4 @@
-/* Colores de sintaxis (tema claro). El verde, el rojo y el amarillo quedan para el diff. */
+/* Syntax colors (light theme). Green, red and yellow are reserved for the diff. */
 .json-key { color: #1a5fb4; }
 .json-string { color: #813d9c; }
 .json-number { color: #c64600; }
@@ -11,8 +11,8 @@
   background-image: repeating-linear-gradient(-45deg, alpha(currentColor, 0.06) 0 2px, transparent 2px 7px);
 }
 
-/* Diff: la fila entera lleva un tinte suave y el valor exacto un fondo más marcado.
-   Verde = añadido, rojo = eliminado, amarillo = modificado, naranja = cambio de tipo. */
+/* Diff: soft tint on the whole row, stronger background on the exact value.
+   Green = added, red = removed, yellow = modified, orange = type change. */
 .json-row.diff-added { background-color: alpha(#2ec27e, 0.14); }
 .json-row.diff-removed { background-color: alpha(#e01b24, 0.12); }
 .json-row.diff-modified { background-color: alpha(#f5c211, 0.14); }
@@ -25,7 +25,6 @@
 .json-value.diff-modified { background-color: alpha(#f5c211, 0.45); }
 .json-value.diff-type-changed { background-color: alpha(#ff7800, 0.25); }
 
-/* Barra resumen. */
 .summary-bar { padding: 6px 12px; border-top: 1px solid alpha(currentColor, 0.15); }
 .summary-chip { border-radius: 4px; padding: 1px 8px; font-weight: bold; }
 .summary-added { background-color: alpha(#2ec27e, 0.30); }
@@ -34,6 +33,5 @@
 
 .json-row.diff-equal-section { opacity: 0.6; }
 
-/* Caja de reglas del diálogo de opciones. */
 .options-rules { border: 1px solid alpha(currentColor, 0.25); border-radius: 8px; }
 .options-rules textview, .options-rules text { background: transparent; }

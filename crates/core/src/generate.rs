@@ -1,12 +1,12 @@
-//! Generador determinista de documentos de prueba (benchmarks y pruebas de rendimiento).
-//! Produce un array de registros de [`NODES_PER_RECORD`] nodos y, con la misma semilla,
-//! variantes con un número exacto de cambios conocidos.
+//! Deterministic generator of test documents (benchmarks and performance tests).
+//! Produces an array of [`NODES_PER_RECORD`]-node records and, with the same seed, variants
+//! with an exact number of known changes.
 
 use std::fmt::Write;
 
 use crate::format::Indent;
 
-/// Nodos de cada registro: el objeto, 5 escalares, `tags` (2 elementos) y `address` (2 miembros).
+/// Nodes per record: the object, 5 scalars, `tags` (2 elements) and `address` (2 members).
 pub const NODES_PER_RECORD: usize = 12;
 
 const TAGS: &[&str] = &[
@@ -14,8 +14,8 @@ const TAGS: &[&str] = &[
     "beta",
     "gamma",
     "ñandú",
-    "línea\\nnueva",
-    "comillas \\\"dobles\\\"",
+    "new\\nline",
+    "\\\"double\\\" quotes",
     "emoji 😀",
     "\\u00e9t\\u00e9",
 ];
@@ -28,17 +28,17 @@ const CITIES: &[&str] = &[
     "São Paulo",
 ];
 
-/// Cambios de una variante respecto al documento base. Cada cambio afecta a un registro
-/// distinto; los registros se reparten de forma uniforme por el documento.
+/// Changes of a variant relative to the base document. Each change hits a different record,
+/// spread evenly across the document.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Changes {
-    /// Cambia el valor de `name` (string → string).
+    /// Changes the value of `name` (string to string).
     pub modified: usize,
-    /// Cambia `active` de booleano a string (`true` → `"true"`).
+    /// Changes `active` from boolean to string (`true` to `"true"`).
     pub type_changed: usize,
-    /// Elimina el registro.
+    /// Removes the record.
     pub removed: usize,
-    /// Inserta un registro nuevo (con `id` nuevo) detrás del elegido.
+    /// Inserts a new record (with a new `id`) after the chosen one.
     pub added: usize,
 }
 
@@ -50,9 +50,9 @@ impl Changes {
 
 #[derive(Clone, Debug)]
 pub struct GenerateOptions {
-    /// Nodos aproximados del documento base; se redondea hacia arriba a registros completos.
+    /// Approximate node count of the base document; rounded up to whole records.
     pub nodes: usize,
-    /// Misma semilla y mismos `nodes` producen el mismo documento base.
+    /// Same seed and `nodes` yield the same base document.
     pub seed: u64,
     pub indent: Indent,
     pub changes: Changes,
@@ -71,11 +71,11 @@ impl Default for GenerateOptions {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum GenerateError {
-    #[error("se pidieron {requested} cambios, pero el documento solo tiene {records} registros")]
+    #[error("requested {requested} changes, but the document only has {records} records")]
     TooManyChanges { requested: usize, records: usize },
 }
 
-/// Número de registros del documento base para `nodes` nodos (más el array raíz).
+/// Number of records in the base document for `nodes` nodes (plus the root array).
 pub fn record_count(nodes: usize) -> usize {
     nodes.saturating_sub(1).div_ceil(NODES_PER_RECORD)
 }
@@ -89,7 +89,7 @@ enum Edit {
     Add,
 }
 
-/// Genera el documento. Con `changes` vacío es el documento base.
+/// Generates the document; with empty `changes` it is the base document.
 pub fn generate(options: &GenerateOptions) -> Result<String, GenerateError> {
     let records = record_count(options.nodes);
     let edits = plan(records, options.changes, options.seed)?;
@@ -113,7 +113,7 @@ pub fn generate(options: &GenerateOptions) -> Result<String, GenerateError> {
     Ok(w.out)
 }
 
-/// Asigna los cambios a registros repartidos uniformemente, en bloques por tipo.
+/// Assigns changes to evenly spread records, grouped by kind.
 fn plan(records: usize, changes: Changes, seed: u64) -> Result<Vec<Edit>, GenerateError> {
     let total = changes.total();
     if total > records {
@@ -127,7 +127,7 @@ fn plan(records: usize, changes: Changes, seed: u64) -> Result<Vec<Edit>, Genera
         return Ok(edits);
     }
     let stride = records / total;
-    // `stride >= 1` porque `total <= records`; el resto es menor que `stride`.
+    // `stride >= 1` because `total <= records`; the remainder is below `stride`.
     let offset = (seed % stride as u64) as usize;
     let kinds = [
         (Edit::Modify, changes.modified),
@@ -159,11 +159,11 @@ fn write_record(w: &mut Writer, id: usize, seed: u64, edit: Edit) {
     w.item(false);
     w.key("name");
     let suffix = if edit == Edit::Modify {
-        "_modificado"
+        "_modified"
     } else {
         ""
     };
-    let _ = write!(w.out, "\"usuario_{id}{suffix}\"");
+    let _ = write!(w.out, "\"user_{id}{suffix}\"");
 
     w.item(false);
     w.key("email");
@@ -217,7 +217,7 @@ fn splitmix64(x: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// Escritor con la misma disposición que el formateador.
+/// Writer with the same layout as the formatter.
 struct Writer {
     out: String,
     unit: String,
@@ -245,7 +245,6 @@ impl Writer {
         self.depth += 1;
     }
 
-    /// Separador antes de cada elemento o miembro.
     fn item(&mut self, first: bool) {
         if !first {
             self.out.push(',');
@@ -293,7 +292,7 @@ mod tests {
 
     fn doc(text: String) -> Document {
         parse(text, &ParseOptions::default())
-            .expect("el JSON generado debe ser válido")
+            .expect("generated JSON must be valid")
             .document
     }
 
@@ -306,9 +305,9 @@ mod tests {
 
     #[test]
     fn node_count_rounds_up_to_whole_records() {
-        let d = doc(generate(&options(1 + 12 * 100, Changes::default())).expect("generar"));
+        let d = doc(generate(&options(1 + 12 * 100, Changes::default())).expect("generate"));
         assert_eq!(d.node_count(), 1 + 12 * 100);
-        let d = doc(generate(&options(1 + 12 * 100 + 1, Changes::default())).expect("generar"));
+        let d = doc(generate(&options(1 + 12 * 100 + 1, Changes::default())).expect("generate"));
         assert_eq!(d.node_count(), 1 + 12 * 101);
         assert_eq!(record_count(1_000_000), 83_334);
     }
@@ -316,23 +315,23 @@ mod tests {
     #[test]
     fn tiny_documents_are_empty_arrays() {
         for nodes in [0, 1] {
-            let text = generate(&options(nodes, Changes::default())).expect("generar");
+            let text = generate(&options(nodes, Changes::default())).expect("generate");
             assert_eq!(text, "[]");
         }
-        let text = generate(&options(2, Changes::default())).expect("generar");
+        let text = generate(&options(2, Changes::default())).expect("generate");
         assert_eq!(doc(text).node_count(), 13);
     }
 
     #[test]
     fn is_deterministic() {
-        let a = generate(&options(5_000, Changes::default())).expect("generar");
-        let b = generate(&options(5_000, Changes::default())).expect("generar");
+        let a = generate(&options(5_000, Changes::default())).expect("generate");
+        let b = generate(&options(5_000, Changes::default())).expect("generate");
         assert_eq!(a, b);
         let other = GenerateOptions {
             seed: 2,
             ..options(5_000, Changes::default())
         };
-        assert_ne!(a, generate(&other).expect("generar"));
+        assert_ne!(a, generate(&other).expect("generate"));
     }
 
     #[test]
@@ -347,7 +346,7 @@ mod tests {
                 indent,
                 ..options(500, Changes::default())
             };
-            let text = generate(&opts).expect("generar");
+            let text = generate(&opts).expect("generate");
             let d = doc(text.clone());
             let formatted = format(
                 &d,
@@ -362,27 +361,27 @@ mod tests {
 
     #[test]
     fn contains_escapes_and_unicode() {
-        let d = doc(generate(&options(20_000, Changes::default())).expect("generar"));
+        let d = doc(generate(&options(20_000, Changes::default())).expect("generate"));
         let strings: Vec<String> = (0..d.node_count())
             .filter_map(|i| d.string(crate::NodeId::from_index(i)))
             .map(|s| s.into_owned())
             .collect();
-        assert!(strings.iter().any(|s| s == "línea\nnueva"));
-        assert!(strings.iter().any(|s| s == "comillas \"dobles\""));
+        assert!(strings.iter().any(|s| s == "new\nline"));
+        assert!(strings.iter().any(|s| s == "\"double\" quotes"));
         assert!(strings.iter().any(|s| s == "été"));
         assert!(strings.iter().any(|s| s == "emoji 😀"));
     }
 
     #[test]
     fn variant_has_exactly_the_requested_changes() {
-        let base = doc(generate(&options(12_001, Changes::default())).expect("generar"));
+        let base = doc(generate(&options(12_001, Changes::default())).expect("generate"));
         let changes = Changes {
             modified: 7,
             type_changed: 3,
             removed: 2,
             added: 4,
         };
-        let variant = doc(generate(&options(12_001, changes)).expect("generar"));
+        let variant = doc(generate(&options(12_001, changes)).expect("generate"));
         let result = diff(&base, &variant, &by_id());
         assert_eq!(
             result.summary(),
@@ -397,7 +396,7 @@ mod tests {
 
     #[test]
     fn each_kind_alone() {
-        let base = doc(generate(&options(6_001, Changes::default())).expect("generar"));
+        let base = doc(generate(&options(6_001, Changes::default())).expect("generate"));
         let cases = [
             (
                 Changes {
@@ -429,7 +428,7 @@ mod tests {
             ),
         ];
         for (changes, (added, removed, modified, type_changed)) in cases {
-            let variant = doc(generate(&options(6_001, changes)).expect("generar"));
+            let variant = doc(generate(&options(6_001, changes)).expect("generate"));
             let summary = diff(&base, &variant, &by_id()).summary();
             let expected = Summary {
                 added,
@@ -449,8 +448,8 @@ mod tests {
             modified: records,
             ..Changes::default()
         };
-        let base = doc(generate(&options(nodes, Changes::default())).expect("generar"));
-        let variant = doc(generate(&options(nodes, changes)).expect("generar"));
+        let base = doc(generate(&options(nodes, Changes::default())).expect("generate"));
+        let variant = doc(generate(&options(nodes, changes)).expect("generate"));
         assert_eq!(diff(&base, &variant, &by_id()).summary().modified, records);
     }
 

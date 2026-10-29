@@ -1,57 +1,53 @@
-//! Errores de parseo.
-
-/// Motivo de un error de parseo. Los mensajes están pensados para mostrarse al usuario.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ErrorKind {
-    #[error("el texto no es UTF-8 válido")]
+    #[error("text is not valid UTF-8")]
     InvalidUtf8,
-    #[error("el documento es demasiado grande (máximo 4 GiB)")]
+    #[error("document is too large (maximum 4 GiB)")]
     TooLarge,
-    #[error("fin inesperado del texto: se esperaba {expected}")]
+    #[error("unexpected end of text: expected {expected}")]
     UnexpectedEnd { expected: &'static str },
-    #[error("carácter inesperado {found:?}: se esperaba {expected}")]
+    #[error("unexpected character {found:?}: expected {expected}")]
     UnexpectedChar { found: char, expected: &'static str },
-    #[error("literal inválido: se esperaba `{expected}`")]
+    #[error("invalid literal: expected `{expected}`")]
     InvalidLiteral { expected: &'static str },
-    #[error("número inválido")]
+    #[error("invalid number")]
     InvalidNumber,
-    #[error("número inválido: no se permiten ceros a la izquierda")]
+    #[error("invalid number: leading zeros are not allowed")]
     LeadingZero,
-    #[error("string sin cerrar")]
+    #[error("unterminated string")]
     UnterminatedString,
-    #[error("carácter de control sin escapar dentro de un string")]
+    #[error("unescaped control character inside a string")]
     ControlCharacter,
-    #[error("secuencia de escape inválida")]
+    #[error("invalid escape sequence")]
     InvalidEscape,
-    #[error("secuencia \\u inválida: se esperaban 4 dígitos hexadecimales")]
+    #[error("invalid \\u sequence: expected 4 hexadecimal digits")]
     InvalidUnicodeEscape,
-    #[error("secuencia \\u inválida: surrogate UTF-16 sin pareja")]
+    #[error("invalid \\u sequence: unpaired UTF-16 surrogate")]
     LoneSurrogate,
-    #[error("coma final no permitida en modo estricto")]
+    #[error("trailing comma not allowed in strict mode")]
     TrailingComma,
-    #[error("comentario no permitido en modo estricto")]
+    #[error("comment not allowed in strict mode")]
     CommentNotAllowed,
-    #[error("comentario sin cerrar")]
+    #[error("unterminated comment")]
     UnterminatedComment,
-    #[error("contenido extra después del valor JSON")]
+    #[error("extra content after the JSON value")]
     TrailingContent,
 }
 
-/// Error de parseo con su posición en el texto original.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("línea {line}, columna {column}: {kind}")]
+#[error("line {line}, column {column}: {kind}")]
 pub struct ParseError {
     pub kind: ErrorKind,
-    /// Posición en bytes desde el inicio del texto.
+    /// Byte offset from the start of the text.
     pub offset: usize,
-    /// Línea, empezando en 1.
+    /// 1-based line.
     pub line: u32,
-    /// Columna en caracteres (no bytes), empezando en 1.
+    /// 1-based column, counted in characters (not bytes).
     pub column: u32,
 }
 
 impl ParseError {
-    /// Crea el error calculando línea y columna. Solo se recorre el texto en caso de error.
+    /// Line/column are computed here, so the text is only scanned on error.
     pub(crate) fn new(kind: ErrorKind, offset: usize, bytes: &[u8]) -> ParseError {
         let (line, column) = line_column(bytes, offset);
         ParseError {
@@ -63,8 +59,7 @@ impl ParseError {
     }
 }
 
-/// Línea y columna (1-based) de un desplazamiento en bytes. La columna cuenta
-/// caracteres UTF-8: se ignoran los bytes de continuación (`10xxxxxx`).
+// Column counts UTF-8 characters: continuation bytes (`10xxxxxx`) are skipped.
 fn line_column(bytes: &[u8], offset: usize) -> (u32, u32) {
     let before = bytes.get(..offset).unwrap_or(bytes);
     let line_start = before
@@ -118,7 +113,7 @@ mod tests {
         let e = ParseError::new(ErrorKind::TrailingContent, 2, b"1\n2");
         assert_eq!(
             e.to_string(),
-            "línea 2, columna 1: contenido extra después del valor JSON"
+            "line 2, column 1: extra content after the JSON value"
         );
     }
 }

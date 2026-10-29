@@ -1,53 +1,54 @@
-# CLAUDE.md — Reglas de trabajo para lljson
+# CLAUDE.md — Working rules for lljson
 
-Este archivo define cómo se trabaja en este repositorio. Es obligatorio en cada sesión.
+This file defines how work is done in this repository. It is mandatory in every session.
 
-## Al iniciar cada sesión
-1. Lee `SPEC.md` (qué es la app, arquitectura obligatoria, metas de rendimiento y versiones fijadas).
-2. Lee `TASKS.md` e identifica la fase en curso y la siguiente tarea sin marcar.
-3. Resume brevemente en qué punto está el proyecto antes de empezar a trabajar.
+## At the start of each session
+1. Read `SPEC.md` (what the app is, mandatory architecture, performance goals and pinned versions).
+2. Read `TASKS.md` and identify the current phase and the next unchecked task.
+3. Briefly summarize where the project stands before starting work.
 
-## Flujo de trabajo
-- Trabaja **una sola fase a la vez**. No empieces la siguiente fase sin mi confirmación explícita.
-- Dentro de una fase, avanza tarea por tarea.
-- Al terminar cada tarea, deben pasar sin errores:
+## Workflow
+- Work on **one phase at a time**. Do not start the next phase without my explicit confirmation.
+- Within a phase, proceed task by task.
+- When finishing each task, these must pass without errors:
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `cargo clippy --workspace --all-targets -- -D warnings`
-- Marca la tarea como completada en `TASKS.md` (`[ ]` → `[x]`).
-- Haz **commit de git al terminar cada tarea**, con un mensaje descriptivo
-  (formato sugerido: `fase N: descripción breve`).
-- Si una tarea no se puede completar, no la marques: explica qué falta y por qué.
+- Mark the task as completed in `TASKS.md` (`[ ]` → `[x]`).
+- Make a **git commit when finishing each task**, with a descriptive message
+  (suggested format: `phase N: short description`).
+- Commit messages are written in English with no Co-Authored-By trailer.
+- If a task cannot be completed, do not mark it: explain what is missing and why.
 
-## Arquitectura
-- Respeta la sección **"Arquitectura obligatoria"** de `SPEC.md` al pie de la letra.
-- Si crees que algo de la arquitectura o del stack debe cambiar, **pregúntame primero**
-  y explica el motivo con datos (benchmarks, limitaciones de la API, etc.).
-- `crates/core` no puede depender de GTK ni de ninguna librería de UI.
-- **Nunca bloquees el hilo de la UI.** Parseo, diff, formateo de archivos grandes y lectura
-  de disco van en hilos de fondo; los resultados vuelven al hilo principal por canal
+## Architecture
+- Follow the **"Mandatory architecture"** section of `SPEC.md` to the letter.
+- If you think something in the architecture or the stack should change, **ask me first**
+  and explain the reason with data (benchmarks, API limitations, etc.).
+- `crates/core` must not depend on GTK or on any UI library.
+- **Never block the UI thread.** Parsing, diffing, formatting of large files and disk reads
+  run on background threads; results return to the main thread through a channel
   (`async-channel` + `glib::MainContext::spawn_local`).
-- **Nunca crees un widget por nodo JSON.** La UI usa siempre vistas virtualizadas
-  (`GtkListView`/`GtkColumnView` con un `GListModel` propio).
+- **Never create one widget per JSON node.** The UI always uses virtualized views
+  (`GtkListView`/`GtkColumnView` with a custom `GListModel`).
 
-## Calidad del código
-- Sin `unwrap()` ni `expect()` en código de la app ni de la librería. Los errores se propagan
-  con `Result` y, en la app, se muestran al usuario (toast, banner o diálogo).
-  Excepción permitida: tests, benchmarks y casos cuya imposibilidad esté demostrada
-  y documentada con un comentario.
-- Sin `unsafe` salvo que sea imprescindible (p. ej. `memmap2`), y siempre con un comentario
-  `// SAFETY:` que justifique la invariante.
-- Todo código nuevo en `core` lleva tests unitarios, incluidos casos extremos.
+## Code quality
+- No `unwrap()` or `expect()` in app or library code. Errors are propagated
+  with `Result` and, in the app, shown to the user (toast, banner or dialog).
+  Allowed exception: tests, benchmarks and cases whose impossibility is proven
+  and documented with a comment.
+- No `unsafe` unless it is essential (e.g. `memmap2`), and always with a `// SAFETY:` comment
+  justifying the invariant.
+- All new code in `core` comes with unit tests, including edge cases.
 
-## Dependencias
-- Usa **solo** las versiones fijadas en la tabla de dependencias de `SPEC.md`.
-- Declara las dependencias en `[workspace.dependencies]` del `Cargo.toml` raíz y
-  referéncialas desde cada crate con `workspace = true`. `Cargo.lock` se versiona.
-- No añadas dependencias nuevas sin preguntarme.
-- Si una API de gtk4-rs / libadwaita no compila, consulta la documentación de **esa versión
-  exacta** en docs.rs (p. ej. `https://docs.rs/gtk4/0.11.5/gtk4/`) antes de adivinar.
+## Dependencies
+- Use **only** the versions pinned in the dependency table of `SPEC.md`.
+- Declare dependencies in `[workspace.dependencies]` of the root `Cargo.toml` and
+  reference them from each crate with `workspace = true`. `Cargo.lock` is versioned.
+- Do not add new dependencies without asking me.
+- If a gtk4-rs / libadwaita API does not compile, consult the documentation for **that exact
+  version** on docs.rs (e.g. `https://docs.rs/gtk4/0.11.5/gtk4/`) before guessing.
 
-## Rendimiento
-- Las metas de rendimiento de `SPEC.md` son requisitos, no sugerencias.
-- Si una meta no se cumple, avísame con los números del benchmark (criterion), la máquina
-  y el archivo usado, y propone opciones antes de cambiar la arquitectura.
+## Performance
+- The performance goals in `SPEC.md` are requirements, not suggestions.
+- If a goal is not met, tell me with the benchmark numbers (criterion), the machine
+  and the file used, and propose options before changing the architecture.

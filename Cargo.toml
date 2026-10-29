@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.92"
 publish = false
 
-# Versiones fijadas en SPEC.md. No actualizar sin aprobación.
+# Versions pinned in SPEC.md. Do not update without approval.
 [workspace.dependencies]
 lljson-core = { path = "crates/core" }
 
@@ -19,7 +19,7 @@ glib = "0.22.10"
 gio = "0.22.10"
 async-channel = "2.5.0"
 
-# Núcleo
+# Core
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 simd-json = "0.19.0"
@@ -28,7 +28,7 @@ ahash = "0.8.12"
 memmap2 = "0.9.12"
 thiserror = "2.0.21"
 
-# Binarios
+# Binaries
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 
