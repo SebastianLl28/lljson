@@ -23,7 +23,7 @@
 .json-value.diff-added { background-color: alpha(#2ec27e, 0.35); }
 .json-value.diff-removed { background-color: alpha(#e01b24, 0.30); }
 .json-value.diff-modified { background-color: alpha(#f5c211, 0.45); }
-.json-value.diff-type-changed { background-color: alpha(#ff7800, 0.40); }
+.json-value.diff-type-changed { background-color: alpha(#ff7800, 0.25); }
 
 /* Barra resumen. */
 .summary-bar { padding: 6px 12px; border-top: 1px solid alpha(currentColor, 0.15); }

@@ -64,7 +64,7 @@ No se avanza de fase sin confirmación.
 - [x] Copiar ruta y valor de nodo.
 - [x] Comparar portapapeles contra archivo.
 - [x] Botones de formatear/minificar/ordenar.
-- [ ] Tema claro/oscuro del sistema.
+- [x] Tema claro/oscuro del sistema.
 
 ## Fase 9 — Empaquetado
 - [ ] Archivo `.desktop`, ícono, metainfo AppStream.
