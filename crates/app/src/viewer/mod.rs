@@ -1,5 +1,6 @@
 //! Viewer tab: edit and inspect a single JSON document.
 
+mod chunks;
 mod editor;
 mod file;
 mod prepare;
@@ -84,7 +85,9 @@ impl ViewerPage {
                 return;
             }
             match result {
-                Ok(text) => this.editor.set_text(&text),
+                Ok(text) => {
+                    let _ = this.editor.set_text(text);
+                }
                 Err(err) => this.toast(&err.to_string()),
             }
         });

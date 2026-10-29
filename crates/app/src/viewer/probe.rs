@@ -6,7 +6,7 @@
 //! tick belongs to the frame that lays out and draws the change, the second one starts only
 //! when that frame is done.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -64,15 +64,45 @@ pub fn run(page: &Rc<ViewerPage>, window: &adw::ApplicationWindow, path: PathBuf
             ms(started.elapsed())
         );
 
+        let expected = text.len();
+        let intervals = Rc::new(RefCell::new(Vec::new()));
+        let loading = Rc::new(Cell::new(true));
+        let last = Cell::new(None::<i64>);
+        let (collected, still_loading) = (Rc::clone(&intervals), Rc::clone(&loading));
+        window.add_tick_callback(move |_, clock| {
+            let now = clock.frame_time();
+            if let Some(previous) = last.replace(Some(now)) {
+                collected
+                    .borrow_mut()
+                    .push((now - previous) as f64 / 1000.0);
+            }
+            if still_loading.get() {
+                glib::ControlFlow::Continue
+            } else {
+                glib::ControlFlow::Break
+            }
+        });
         let start = Instant::now();
-        page.editor.set_text(&text);
-        let set_text = ms(start.elapsed());
+        let done = page.editor.set_text(text);
+        let _ = done.recv().await;
+        let total = ms(start.elapsed());
+        loading.set(false);
         frames(&window, 2).await;
+        let matches = page.editor.text().len() == expected;
         eprintln!(
-            "open: set_text blocks the UI thread {set_text:.1} ms; frozen until the frame after the next one {:.1} ms",
-            ms(start.elapsed())
+            "open (chunked): fully inserted in {total:.1} ms, {}; text length preserved: {matches}",
+            if intervals.borrow().is_empty() {
+                "no frames drawn while loading".to_owned()
+            } else {
+                let mut sorted = intervals.borrow().clone();
+                sorted.sort_by(f64::total_cmp);
+                format!(
+                    "{} frames while loading, worst frame interval {:.1} ms",
+                    sorted.len(),
+                    sorted.last().copied().unwrap_or(0.0)
+                )
+            }
         );
-        drop(text);
 
         let view = page.editor.view.clone();
         let buffer = view.buffer();
@@ -104,7 +134,7 @@ pub fn run(page: &Rc<ViewerPage>, window: &adw::ApplicationWindow, path: PathBuf
             (horizontal, "horizontal (single long line)")
         };
         let max = range(&adjustment).max(0.0);
-        let intervals = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let intervals = Rc::new(RefCell::new(Vec::new()));
         let (sender, receiver) = async_channel::bounded(1);
         let first = Cell::new(None::<i64>);
         let last = Cell::new(None::<i64>);
@@ -114,7 +144,9 @@ pub fn run(page: &Rc<ViewerPage>, window: &adw::ApplicationWindow, path: PathBuf
             let begin = *first.get().get_or_insert(now);
             first.set(Some(begin));
             if let Some(previous) = last.replace(Some(now)) {
-                collected.borrow_mut().push((now - previous) as f64 / 1000.0);
+                collected
+                    .borrow_mut()
+                    .push((now - previous) as f64 / 1000.0);
             }
             let elapsed = (now - begin) as f64 / 1e6;
             if elapsed >= SCROLL_SECONDS {
