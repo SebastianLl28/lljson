@@ -81,9 +81,18 @@ fn describe(validation: &Validation) -> Status {
             hint: None,
             class: None,
         },
-        Validation::Valid => Status {
+        Validation::Valid { fixes: 0 } => Status {
             message: "Valid JSON".to_owned(),
             hint: None,
+            class: Some("success"),
+        },
+        Validation::Valid { fixes } => Status {
+            message: format!(
+                "Valid with tolerant mode: {fixes} comment{} or trailing comma{} found",
+                if *fixes == 1 { "" } else { "s" },
+                if *fixes == 1 { "" } else { "s" }
+            ),
+            hint: Some("Hint: Auto-fix removes them to get standard JSON".to_owned()),
             class: Some("success"),
         },
         Validation::Invalid { error, hint, .. } => Status {
@@ -101,17 +110,22 @@ fn describe(validation: &Validation) -> Status {
 mod tests {
     use super::*;
     use crate::viewer::validate::validate;
+    use lljson_core::Mode;
+
+    fn strict(text: String) -> Validation {
+        validate(text, Mode::Strict)
+    }
 
     #[test]
     fn empty_is_neutral() {
-        let status = describe(&validate("  ".to_owned()));
+        let status = describe(&strict("  ".to_owned()));
         assert_eq!((status.message.as_str(), status.class), ("Empty", None));
         assert_eq!(status.hint, None);
     }
 
     #[test]
     fn valid_is_success() {
-        let status = describe(&validate("[1]".to_owned()));
+        let status = describe(&strict("[1]".to_owned()));
         assert_eq!(
             (status.message.as_str(), status.class),
             ("Valid JSON", Some("success"))
@@ -121,7 +135,7 @@ mod tests {
 
     #[test]
     fn invalid_reports_position_reason_and_hint() {
-        let status = describe(&validate("{\n  \"a\": 1,\n  x\n}".to_owned()));
+        let status = describe(&strict("{\n  \"a\": 1,\n  x\n}".to_owned()));
         assert_eq!(
             status.message,
             "Line 3, column 3: unexpected character 'x': expected a quoted key"
@@ -135,7 +149,7 @@ mod tests {
 
     #[test]
     fn truncated_text_reports_the_end() {
-        let status = describe(&validate("[1, 2".to_owned()));
+        let status = describe(&strict("[1, 2".to_owned()));
         assert!(
             status
                 .message
@@ -151,6 +165,26 @@ mod tests {
 
     #[test]
     fn error_without_advice_has_no_hint() {
-        assert_eq!(describe(&validate("[-]".to_owned())).hint, None);
+        assert_eq!(describe(&strict("[-]".to_owned())).hint, None);
+    }
+
+    #[test]
+    fn tolerant_fixes_are_announced() {
+        let status = describe(&validate("[1,]".to_owned(), Mode::Tolerant));
+        assert_eq!(
+            status.message,
+            "Valid with tolerant mode: 1 comment or trailing comma found"
+        );
+        assert_eq!(
+            status.hint.as_deref(),
+            Some("Hint: Auto-fix removes them to get standard JSON")
+        );
+        assert_eq!(status.class, Some("success"));
+        let many = describe(&validate("[1,] // a".to_owned(), Mode::Tolerant));
+        assert!(
+            many.message.contains("2 comments or trailing commas"),
+            "{}",
+            many.message
+        );
     }
 }

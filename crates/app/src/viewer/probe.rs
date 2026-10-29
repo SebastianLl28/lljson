@@ -44,7 +44,7 @@ async fn frames(window: &adw::ApplicationWindow, count: u32) {
 fn validation_label(validation: &Validation) -> &'static str {
     match validation {
         Validation::Empty => "empty",
-        Validation::Valid => "valid",
+        Validation::Valid { .. } => "valid",
         Validation::Invalid { .. } => "invalid",
     }
 }

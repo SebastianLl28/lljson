@@ -16,15 +16,18 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
+use lljson_core::Mode;
 
 use self::editor::Editor;
 use self::status::StatusBar;
-use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_validate};
+use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_autofix, spawn_validate};
 
 pub struct ViewerPage {
     root: adw::ToastOverlay,
     editor: Editor,
     status: StatusBar,
+    tolerant: gtk::ToggleButton,
+    auto_fix: gtk::Button,
     /// Id of the latest file read; results from older reads are discarded.
     generation: Cell<u64>,
     /// Outcome of the latest finished validation; `None` until the first one.
@@ -57,6 +60,17 @@ impl ViewerPage {
                 .action_name("win.viewer-copy-all")
                 .build(),
         );
+        let tolerant = gtk::ToggleButton::builder()
+            .label("Tolerant")
+            .tooltip_text("Accept comments and trailing commas")
+            .build();
+        bar.append(&tolerant);
+        let auto_fix = gtk::Button::builder()
+            .label("Auto-fix")
+            .tooltip_text("Remove comments and trailing commas")
+            .sensitive(false)
+            .build();
+        bar.append(&auto_fix);
         let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         content.append(&bar);
         content.append(&editor.root);
@@ -69,6 +83,8 @@ impl ViewerPage {
             root,
             editor,
             status,
+            tolerant,
+            auto_fix,
             generation: Cell::new(0),
             validation: RefCell::new(None),
             validating: Generation::default(),
@@ -105,16 +121,56 @@ impl ViewerPage {
             }
             match result {
                 Ok(text) => {
-                    let done = this.editor.set_text(text);
-                    drop(this);
-                    // Inserting is in slices; the text is validated once all of it is in.
-                    if done.recv().await.is_ok()
-                        && let Some(this) = weak.upgrade()
-                    {
-                        this.schedule_validation();
-                    }
+                    this.replace_text(text);
                 }
                 Err(err) => this.toast(&err.to_string()),
+            }
+        });
+    }
+
+    /// Replaces the text; it is validated once all of it is in (inserting is done in slices).
+    fn replace_text(self: &Rc<Self>, text: String) {
+        let done = self.editor.set_text(text);
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            if done.recv().await.is_ok()
+                && let Some(this) = weak.upgrade()
+            {
+                this.schedule_validation();
+            }
+        });
+    }
+
+    fn mode(&self) -> Mode {
+        if self.tolerant.is_active() {
+            Mode::Tolerant
+        } else {
+            Mode::Strict
+        }
+    }
+
+    /// Removes comments and trailing commas on a background thread and puts the result in the
+    /// editor, unless the text was edited in the meantime.
+    fn auto_fix(self: &Rc<Self>) {
+        if !self.editor.view.is_editable() {
+            return;
+        }
+        let id = self.validating.current();
+        let receiver = spawn_autofix(self.editor.text());
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let Ok(fixed) = receiver.recv().await else {
+                return;
+            };
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if !this.validating.is_current(id) {
+                return;
+            }
+            match fixed {
+                Some(text) => this.replace_text(text),
+                None => this.toast("Nothing to fix"),
             }
         });
     }
@@ -122,6 +178,18 @@ impl ViewerPage {
     /// Edits restart the debounce timer; programmatic replacements (read-only editor) only
     /// cancel whatever is pending, since their own completion triggers the validation.
     fn setup_validation(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.tolerant.connect_toggled(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.schedule_validation();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.auto_fix.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.auto_fix();
+            }
+        });
         let weak = Rc::downgrade(self);
         self.editor.view.buffer().connect_changed(move |_| {
             let Some(this) = weak.upgrade() else {
@@ -138,6 +206,7 @@ impl ViewerPage {
     fn cancel_validation(&self) {
         // The mark would point at the wrong place once the text changes.
         self.editor.clear_error();
+        self.auto_fix.set_sensitive(false);
         self.validating.advance();
         if let Some(timer) = self.debounce.take() {
             timer.remove();
@@ -155,7 +224,7 @@ impl ViewerPage {
             };
             // The timer is gone once it fires; forget its id so it is not removed later.
             this.debounce.take();
-            let receiver = spawn_validate(this.editor.text());
+            let receiver = spawn_validate(this.editor.text(), this.mode());
             let weak = Rc::downgrade(&this);
             glib::MainContext::default().spawn_local(async move {
                 let Ok(result) = receiver.recv().await else {
@@ -165,6 +234,8 @@ impl ViewerPage {
                     && this.validating.is_current(id)
                 {
                     this.status.show(&result);
+                    this.auto_fix
+                        .set_sensitive(matches!(result, Validation::Valid { fixes } if fixes > 0));
                     match &result {
                         Validation::Invalid { mark, .. } => this.editor.mark_error(mark),
                         _ => this.editor.clear_error(),

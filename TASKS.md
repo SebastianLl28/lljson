@@ -98,7 +98,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Debounced background parse with generation counter.
 - [x] Status bar with valid / error `line:col`.
 - [x] Error hints in `core` (with tests) and error mark in the editor.
-- [ ] Tolerant mode toggle with auto-fix.
+- [x] Tolerant mode toggle with auto-fix.
 
 ## Phase 13 — Viewer tab: formatting
 - [ ] Auto-format on paste when the content is valid JSON.

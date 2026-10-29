@@ -12,7 +12,8 @@ pub const DEBOUNCE_MS: u64 = 150;
 pub enum Validation {
     /// Nothing but whitespace: not an error, there is just nothing to validate.
     Empty,
-    Valid,
+    /// `fixes` counts comments and trailing commas accepted only because of tolerant mode.
+    Valid { fixes: usize },
     Invalid {
         error: ParseError,
         /// How to fix it, when `core` has advice for this kind of error.
@@ -54,14 +55,16 @@ pub fn mark_for(text: &str, offset: usize) -> Mark {
     }
 }
 
-/// Parses `text` as strict JSON.
-pub fn validate(text: String) -> Validation {
+/// Parses `text` in the given mode.
+pub fn validate(text: String, mode: Mode) -> Validation {
     if text.trim().is_empty() {
         return Validation::Empty;
     }
-    let options = ParseOptions { mode: Mode::Strict };
+    let options = ParseOptions { mode };
     match parse(Source::from(text.as_str()), &options) {
-        Ok(_) => Validation::Valid,
+        Ok(parsed) => Validation::Valid {
+            fixes: parsed.fixes.len(),
+        },
         Err(error) => Validation::Invalid {
             hint: error.hint(text.as_bytes()),
             mark: mark_for(&text, error.offset),
@@ -72,7 +75,7 @@ pub fn validate(text: String) -> Validation {
 
 /// Parses on a background thread; the receiver yields exactly one result, or closes without
 /// one if the thread could not be created.
-pub fn spawn_validate(text: String) -> async_channel::Receiver<Validation> {
+pub fn spawn_validate(text: String, mode: Mode) -> async_channel::Receiver<Validation> {
     let (sender, receiver) = async_channel::bounded(1);
     // A failed spawn drops the sender with the closure, which closes the channel: the
     // caller sees no result and keeps the previous status.
@@ -80,7 +83,28 @@ pub fn spawn_validate(text: String) -> async_channel::Receiver<Validation> {
         .name("lljson-validate".to_owned())
         .spawn(move || {
             // A dropped receiver (stale request) just discards the result.
-            let _ = sender.send_blocking(validate(text));
+            let _ = sender.send_blocking(validate(text, mode));
+        });
+    receiver
+}
+
+/// Text without comments or trailing commas, or `None` if it is not valid tolerant JSON or
+/// already standard.
+pub fn autofix(text: String) -> Option<String> {
+    let options = ParseOptions {
+        mode: Mode::Tolerant,
+    };
+    parse(Source::from(text), &options).ok()?.autocorrected()
+}
+
+/// Runs [`autofix`] on a background thread; the receiver yields exactly one result, or closes
+/// without one if the thread could not be created.
+pub fn spawn_autofix(text: String) -> async_channel::Receiver<Option<String>> {
+    let (sender, receiver) = async_channel::bounded(1);
+    let _ = std::thread::Builder::new()
+        .name("lljson-autofix".to_owned())
+        .spawn(move || {
+            let _ = sender.send_blocking(autofix(text));
         });
     receiver
 }
@@ -97,6 +121,10 @@ impl Generation {
         id
     }
 
+    pub fn current(&self) -> u64 {
+        self.0.get()
+    }
+
     pub fn is_current(&self, id: u64) -> bool {
         self.0.get() == id
     }
@@ -105,12 +133,20 @@ impl Generation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strict(text: String) -> Validation {
+        validate(text, Mode::Strict)
+    }
+
+    fn tolerant(text: &str) -> Validation {
+        validate(text.to_owned(), Mode::Tolerant)
+    }
     use lljson_core::ErrorKind;
 
     #[test]
     fn blank_text_is_empty_not_an_error() {
         for text in ["", "  ", "\n\t \r\n"] {
-            assert_eq!(validate(text.to_owned()), Validation::Empty);
+            assert_eq!(strict(text.to_owned()), Validation::Empty);
         }
     }
 
@@ -123,13 +159,17 @@ mod tests {
             "null",
             "{\"a\": {\"b\": [true]}}",
         ] {
-            assert_eq!(validate(text.to_owned()), Validation::Valid, "{text}");
+            assert_eq!(
+                strict(text.to_owned()),
+                Validation::Valid { fixes: 0 },
+                "{text}"
+            );
         }
     }
 
     #[test]
     fn invalid_documents_report_line_and_column() {
-        let Validation::Invalid { error: err, .. } = validate("{\n  \"a\": 1,\n  x\n}".to_owned())
+        let Validation::Invalid { error: err, .. } = strict("{\n  \"a\": 1,\n  x\n}".to_owned())
         else {
             panic!("expected an error");
         };
@@ -139,7 +179,7 @@ mod tests {
 
     #[test]
     fn truncated_text_is_an_error_at_the_end() {
-        let Validation::Invalid { error: err, .. } = validate("[1, 2".to_owned()) else {
+        let Validation::Invalid { error: err, .. } = strict("[1, 2".to_owned()) else {
             panic!("expected an error");
         };
         assert!(matches!(err.kind, ErrorKind::UnexpectedEnd { .. }));
@@ -149,7 +189,7 @@ mod tests {
     fn comments_and_trailing_commas_are_errors_in_strict_mode() {
         for text in ["[1, // one\n 2]", "{\"a\": 1,}"] {
             assert!(matches!(
-                validate(text.to_owned()),
+                strict(text.to_owned()),
                 Validation::Invalid { .. }
             ));
         }
@@ -157,8 +197,8 @@ mod tests {
 
     #[test]
     fn spawn_validate_delivers_one_result() {
-        let receiver = spawn_validate("[1]".to_owned());
-        assert_eq!(receiver.recv_blocking(), Ok(Validation::Valid));
+        let receiver = spawn_validate("[1]".to_owned(), Mode::Strict);
+        assert_eq!(receiver.recv_blocking(), Ok(Validation::Valid { fixes: 0 }));
         assert!(receiver.recv_blocking().is_err(), "only one result");
     }
 
@@ -182,7 +222,7 @@ mod tests {
 
     #[test]
     fn invalid_documents_carry_a_hint() {
-        let Validation::Invalid { hint, .. } = validate("[1 2]".to_owned()) else {
+        let Validation::Invalid { hint, .. } = strict("[1 2]".to_owned()) else {
             panic!("expected an error");
         };
         assert_eq!(
@@ -276,5 +316,43 @@ mod tests {
                 end: 1
             }
         );
+    }
+
+    #[test]
+    fn tolerant_mode_counts_what_it_forgives() {
+        assert_eq!(
+            tolerant("{\"a\": 1, // one\n \"b\": [2,],}"),
+            Validation::Valid { fixes: 3 }
+        );
+        assert_eq!(tolerant("[1]"), Validation::Valid { fixes: 0 });
+    }
+
+    #[test]
+    fn tolerant_mode_still_reports_real_errors() {
+        assert!(matches!(tolerant("[1 2]"), Validation::Invalid { .. }));
+        assert_eq!(tolerant("  "), Validation::Empty);
+    }
+
+    #[test]
+    fn autofix_removes_comments_and_trailing_commas() {
+        assert_eq!(
+            autofix("{\"a\": 1, // one\n \"b\": [2,],}".to_owned()).as_deref(),
+            Some("{\"a\": 1, \n \"b\": [2]}")
+        );
+        assert_eq!(autofix("/* c */ [1]".to_owned()).as_deref(), Some(" [1]"));
+    }
+
+    #[test]
+    fn autofix_has_nothing_to_do_for_standard_or_broken_json() {
+        assert_eq!(autofix("[1]".to_owned()), None);
+        assert_eq!(autofix("[1 2]".to_owned()), None);
+        assert_eq!(autofix(String::new()), None);
+    }
+
+    #[test]
+    fn spawn_autofix_delivers_one_result() {
+        let receiver = spawn_autofix("[1,]".to_owned());
+        assert_eq!(receiver.recv_blocking(), Ok(Some("[1]".to_owned())));
+        assert!(receiver.recv_blocking().is_err(), "only one result");
     }
 }
