@@ -218,6 +218,60 @@ pub const THEMES: &[Theme] = &[
             null: "#8d6a82",
         }),
     },
+    Theme {
+        id: "ayu-dark",
+        label: "Ayu Dark",
+        stock: false,
+        palette: Some(Palette {
+            dark: true,
+            window: "#0b0e14",
+            view: "#0d1017",
+            header: "#151a24",
+            text: "#bfbdb6",
+            accent: "#e6b450",
+            key: "#59c2ff",
+            string: "#aad94c",
+            number: "#d2a6ff",
+            boolean: "#ff8f40",
+            null: "#5c6773",
+        }),
+    },
+    Theme {
+        id: "ayu-mirage",
+        label: "Ayu Mirage",
+        stock: false,
+        palette: Some(Palette {
+            dark: true,
+            window: "#1f2430",
+            view: "#242936",
+            header: "#2d3445",
+            text: "#cccac2",
+            accent: "#ffcc66",
+            key: "#73d0ff",
+            string: "#d5ff80",
+            number: "#dfbfff",
+            boolean: "#ffad66",
+            null: "#707a8c",
+        }),
+    },
+    Theme {
+        id: "ayu-light",
+        label: "Ayu Light",
+        stock: false,
+        palette: Some(Palette {
+            dark: false,
+            window: "#f0f0ee",
+            view: "#fcfcfc",
+            header: "#e4e4e1",
+            text: "#5c6166",
+            accent: "#ff9940",
+            key: "#399ee6",
+            string: "#86b300",
+            number: "#a37acc",
+            boolean: "#fa8d3e",
+            null: "#8a9199",
+        }),
+    },
 ];
 
 /// Unknown ids (e.g. from a newer version's config) fall back to following the system.
@@ -250,6 +304,7 @@ pub fn palette_css(theme: &Theme, p: &Palette) -> String {
         null,
         ..
     } = p;
+    let accent_text = accent_foreground(accent);
     let bars = if theme.stock {
         String::new()
     } else {
@@ -275,7 +330,7 @@ pub fn palette_css(theme: &Theme, p: &Palette) -> String {
 @define-color dialog_fg_color {text};
 @define-color accent_bg_color {accent};
 @define-color accent_color {accent};
-@define-color accent_fg_color #ffffff;
+@define-color accent_fg_color {accent_text};
 :root {{
   --window-bg-color: {window};
   --window-fg-color: {text};
@@ -292,7 +347,7 @@ pub fn palette_css(theme: &Theme, p: &Palette) -> String {
   --dialog-fg-color: {text};
   --accent-bg-color: {accent};
   --accent-color: {accent};
-  --accent-fg-color: #ffffff;
+  --accent-fg-color: {accent_text};
 }}
 {bars}.json-key {{ color: {key}; }}
 .json-string {{ color: {string}; }}
@@ -301,6 +356,18 @@ pub fn palette_css(theme: &Theme, p: &Palette) -> String {
 .json-null {{ color: {null}; }}
 "
     )
+}
+
+/// Dark text on light accents (Ayu's yellow), white on the rest.
+fn accent_foreground(accent: &str) -> &'static str {
+    let channel = |i: usize| {
+        accent
+            .get(1 + 2 * i..3 + 2 * i)
+            .and_then(|h| u8::from_str_radix(h, 16).ok())
+            .map_or(0.0, f64::from)
+    };
+    let luma = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+    if luma > 160.0 { "#1a1a1a" } else { "#ffffff" }
 }
 
 thread_local! {
@@ -378,6 +445,13 @@ mod tests {
                 assert!(is_hex(color), "bad color {color}");
             }
         }
+    }
+
+    #[test]
+    fn accent_text_contrasts_with_the_accent() {
+        assert_eq!(accent_foreground("#ffcc66"), "#1a1a1a");
+        assert_eq!(accent_foreground("#3584e4"), "#ffffff");
+        assert_eq!(accent_foreground("#e5167f"), "#ffffff");
     }
 
     #[test]
