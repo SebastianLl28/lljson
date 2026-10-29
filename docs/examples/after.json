@@ -1,0 +1,13 @@
+{
+  "name": "Ada Lovelace",
+  "id": "1042",
+  "active": true,
+  "updatedAt": "2026-10-28T17:05:00Z",
+  "roles": ["admin", "viewer", "editor"],
+  "address": { "city": "Cambridge", "zip": "N1 9GU", "phone": "+44 20 7946 0000" },
+  "orders": [
+    { "id": "a1", "total": 19.99, "paid": true },
+    { "id": "b2", "total": 7.5, "paid": true },
+    { "id": "d4", "total": 42, "paid": false }
+  ]
+}
