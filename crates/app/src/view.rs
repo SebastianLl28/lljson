@@ -100,7 +100,7 @@ impl Comparison {
         }
     }
 
-    fn cell(&self, side: Side, position: usize) -> Option<Cell> {
+    pub fn cell(&self, side: Side, position: usize) -> Option<Cell> {
         let row = self.rows.get(position)?;
         match side {
             Side::Left => row.left(),
@@ -289,12 +289,16 @@ impl RowWidgets {
     }
 }
 
+/// Clic derecho en una fila: lado, posición, widget de la fila y coordenadas en él.
+pub type ContextMenu = Rc<dyn Fn(Side, u32, &gtk::Widget, f64, f64)>;
+
 /// Fábrica de filas de un lado. `on_toggle` recibe la posición de la fila a expandir o
 /// colapsar (clic en el triángulo).
 pub fn factory(
     side: Side,
     comparison: Rc<RefCell<Comparison>>,
     on_toggle: Rc<dyn Fn(u32)>,
+    on_context: ContextMenu,
 ) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
     factory.connect_setup(move |_, item| {
@@ -312,6 +316,19 @@ pub fn factory(
             }
         });
         widgets.expander.add_controller(click);
+        let menu = gtk::GestureClick::builder()
+            .button(gtk::gdk::BUTTON_SECONDARY)
+            .build();
+        let weak_item = item.downgrade();
+        let weak_root = widgets.root.downgrade();
+        let on_context = Rc::clone(&on_context);
+        menu.connect_pressed(move |gesture, _, x, y| {
+            if let (Some(item), Some(root)) = (weak_item.upgrade(), weak_root.upgrade()) {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                on_context(side, item.position(), root.upcast_ref(), x, y);
+            }
+        });
+        widgets.root.add_controller(menu);
         item.set_activatable(true);
         item.set_child(Some(&widgets.root));
     });

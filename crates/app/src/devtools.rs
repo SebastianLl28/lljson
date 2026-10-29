@@ -12,6 +12,8 @@
 //! - `JSONLENS_ACTIONS=win.hide-equal,…`: activa esas acciones de la ventana 800 ms antes
 //!   de la captura.
 //! - `JSONLENS_ARRAY_KEY=id` y `JSONLENS_IGNORE=regla;regla`: opciones de comparación.
+//! - `JSONLENS_COPY=lado:fila:path|value`: copia la ruta o el valor y escribe el
+//!   portapapeles. `JSONLENS_NODE_MENU=lado:fila`: abre el menú contextual de una fila.
 //! - `JSONLENS_SCROLL=px`: desplaza el panel izquierdo 300 ms antes de la captura.
 //! - `JSONLENS_SCROLL_TEST=segundos`: cuando las filas están listas, hace scroll continuo
 //!   la mitad del tiempo y saltos aleatorios la otra mitad, mide la duración de cada
@@ -25,6 +27,8 @@ use std::time::{Duration, Instant};
 use adw::prelude::*;
 use gtk::glib;
 
+use crate::nodecopy::Copy;
+use crate::pane::Side;
 use crate::window::Window;
 
 /// Velocidad del scroll continuo, en píxeles por segundo.
@@ -150,6 +154,68 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
                         let _ = WidgetExt::activate_action(&app_window.window, &name, None);
                     }
                 }
+            },
+        );
+    }
+    if let Ok(spec) = std::env::var("JSONLENS_COPY") {
+        let weak = Rc::downgrade(app_window);
+        glib::timeout_add_local_once(
+            Duration::from_millis(delay.saturating_sub(800)),
+            move || {
+                let Some(app_window) = weak.upgrade() else {
+                    return;
+                };
+                let parts: Vec<&str> = spec.split(':').collect();
+                let [side, position, what] = parts.as_slice() else {
+                    return;
+                };
+                let side = if *side == "right" {
+                    Side::Right
+                } else {
+                    Side::Left
+                };
+                let what = if *what == "path" {
+                    Copy::Path
+                } else {
+                    Copy::Value
+                };
+                app_window.copy_node(side, position.parse().unwrap_or(0), what);
+                let clipboard = app_window.window.clipboard();
+                glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                    glib::MainContext::default().spawn_local(async move {
+                        match clipboard.read_text_future().await {
+                            Ok(text) => eprintln!("portapapeles: {text:?}"),
+                            Err(err) => eprintln!("portapapeles: error {err}"),
+                        }
+                    });
+                });
+            },
+        );
+    }
+    if let Ok(spec) = std::env::var("JSONLENS_NODE_MENU") {
+        let weak = Rc::downgrade(app_window);
+        glib::timeout_add_local_once(
+            Duration::from_millis(delay.saturating_sub(800)),
+            move || {
+                let Some(app_window) = weak.upgrade() else {
+                    return;
+                };
+                let Some((side, position)) = spec.split_once(':') else {
+                    return;
+                };
+                let side = if side == "right" {
+                    Side::Right
+                } else {
+                    Side::Left
+                };
+                let list = app_window.list(side);
+                app_window.show_node_menu(
+                    side,
+                    position.parse().unwrap_or(0),
+                    list.upcast_ref(),
+                    150.0,
+                    150.0,
+                );
             },
         );
     }

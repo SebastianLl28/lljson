@@ -4,12 +4,14 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use jsonlens_core::{DiffOptions, Direction, Rows, Splice, diff};
+use jsonlens_core::{Cell as RowCell, DiffOptions, Direction, Document, Rows, Splice, diff};
 
 use crate::loader::Input;
+use crate::nodecopy::{self, Copy};
 use crate::options::{self, OptionsText};
 use crate::pane::{Pane, Side};
 use crate::summary::{State, SummaryBar};
@@ -66,17 +68,33 @@ impl Window {
                 this.toggle(position);
             }
         });
+        let weak_menu = weak.clone();
+        let on_context: view::ContextMenu = Rc::new(move |side, position, widget, x, y| {
+            if let Some(this) = weak_menu.upgrade() {
+                this.show_node_menu(side, position, widget, x, y);
+            }
+        });
         let left_model = RowsModel::new();
         let right_model = RowsModel::new();
         let left = Pane::new(
             Side::Left,
             &left_model,
-            view::factory(Side::Left, Rc::clone(&comparison), Rc::clone(&on_toggle)),
+            view::factory(
+                Side::Left,
+                Rc::clone(&comparison),
+                Rc::clone(&on_toggle),
+                Rc::clone(&on_context),
+            ),
         );
         let right = Pane::new(
             Side::Right,
             &right_model,
-            view::factory(Side::Right, Rc::clone(&comparison), Rc::clone(&on_toggle)),
+            view::factory(
+                Side::Right,
+                Rc::clone(&comparison),
+                Rc::clone(&on_toggle),
+                Rc::clone(&on_context),
+            ),
         );
         for pane in [&left, &right] {
             let on_toggle = Rc::clone(&on_toggle);
@@ -451,6 +469,58 @@ impl Window {
     #[cfg(any(debug_assertions, feature = "devtools"))]
     pub fn left_vadjustment(&self) -> gtk::Adjustment {
         self.left.scrolled.vadjustment()
+    }
+
+    /// Documento y celda que muestra la fila `position` de un lado (`None` si es relleno).
+    fn node_at(&self, side: Side, position: u32) -> Option<(RowCell, Arc<Document>)> {
+        let comparison = self.comparison.borrow();
+        let cell = comparison.cell(side, position as usize)?;
+        let doc = match side {
+            Side::Left => comparison.left.clone(),
+            Side::Right => comparison.right.clone(),
+        }?;
+        Some((cell, doc))
+    }
+
+    /// Copia la ruta o el valor del nodo de una fila y avisa con un toast.
+    pub fn copy_node(self: &Rc<Self>, side: Side, position: u32, what: Copy) {
+        let Some((cell, doc)) = self.node_at(side, position) else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        let notify: nodecopy::Notify = Rc::new(move |message| {
+            if let Some(this) = weak.upgrade() {
+                this.toast(message);
+            }
+        });
+        nodecopy::copy(&self.window.clipboard(), &doc, cell.node, what, &notify);
+    }
+
+    /// Menú de clic derecho de una fila: copiar la ruta o el valor de su nodo.
+    pub fn show_node_menu(
+        self: &Rc<Self>,
+        side: Side,
+        position: u32,
+        widget: &gtk::Widget,
+        x: f64,
+        y: f64,
+    ) {
+        // Una fila de relleno no tiene nodo en este lado.
+        if self.node_at(side, position).is_none() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        nodecopy::show_menu(widget, x, y, move |what: Copy| {
+            if let Some(this) = weak.upgrade() {
+                this.copy_node(side, position, what);
+            }
+        });
+    }
+
+    /// Lista del panel `side` (herramientas de desarrollo).
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn list(&self, side: Side) -> gtk::ListView {
+        self.pane(side).list.clone()
     }
 
     /// Expande o colapsa la fila `position` en ambos paneles.
