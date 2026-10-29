@@ -6,21 +6,30 @@ mod file;
 mod prepare;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 pub mod probe;
+mod validate;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 
 use self::editor::Editor;
+use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_validate};
 
 pub struct ViewerPage {
     root: adw::ToastOverlay,
     editor: Editor,
     /// Id of the latest file read; results from older reads are discarded.
     generation: Cell<u64>,
+    /// Outcome of the latest finished validation; `None` until the first one.
+    validation: RefCell<Option<Validation>>,
+    /// Id of the latest validation request; results of older ones are dropped.
+    validating: Generation,
+    /// Pending debounce timer, cleared by the timer itself when it fires.
+    debounce: RefCell<Option<glib::SourceId>>,
 }
 
 impl ViewerPage {
@@ -55,8 +64,12 @@ impl ViewerPage {
             root,
             editor,
             generation: Cell::new(0),
+            validation: RefCell::new(None),
+            validating: Generation::default(),
+            debounce: RefCell::new(None),
         });
         this.setup_drop();
+        this.setup_validation();
         this
     }
 
@@ -86,11 +99,74 @@ impl ViewerPage {
             }
             match result {
                 Ok(text) => {
-                    let _ = this.editor.set_text(text);
+                    let done = this.editor.set_text(text);
+                    drop(this);
+                    // Inserting is in slices; the text is validated once all of it is in.
+                    if done.recv().await.is_ok()
+                        && let Some(this) = weak.upgrade()
+                    {
+                        this.schedule_validation();
+                    }
                 }
                 Err(err) => this.toast(&err.to_string()),
             }
         });
+    }
+
+    /// Edits restart the debounce timer; programmatic replacements (read-only editor) only
+    /// cancel whatever is pending, since their own completion triggers the validation.
+    fn setup_validation(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.editor.view.buffer().connect_changed(move |_| {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if this.editor.view.is_editable() {
+                this.schedule_validation();
+            } else {
+                this.cancel_validation();
+            }
+        });
+    }
+
+    fn cancel_validation(&self) {
+        self.validating.advance();
+        if let Some(timer) = self.debounce.take() {
+            timer.remove();
+        }
+    }
+
+    /// Parses the text on a background thread after the user stops typing.
+    fn schedule_validation(self: &Rc<Self>) {
+        self.cancel_validation();
+        let id = self.validating.advance();
+        let weak = Rc::downgrade(self);
+        let timer = glib::timeout_add_local_once(Duration::from_millis(DEBOUNCE_MS), move || {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            // The timer is gone once it fires; forget its id so it is not removed later.
+            this.debounce.take();
+            let receiver = spawn_validate(this.editor.text());
+            let weak = Rc::downgrade(&this);
+            glib::MainContext::default().spawn_local(async move {
+                let Ok(result) = receiver.recv().await else {
+                    return;
+                };
+                if let Some(this) = weak.upgrade()
+                    && this.validating.is_current(id)
+                {
+                    *this.validation.borrow_mut() = Some(result);
+                }
+            });
+        });
+        *self.debounce.borrow_mut() = Some(timer);
+    }
+
+    /// Latest validation outcome, for the probe.
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    fn validation(&self) -> Option<std::cell::Ref<'_, Validation>> {
+        std::cell::Ref::filter_map(self.validation.borrow(), Option::as_ref).ok()
     }
 
     pub fn open_dialog(self: &Rc<Self>, window: &adw::ApplicationWindow) {

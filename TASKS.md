@@ -95,7 +95,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Re-measure the Viewer with the 1M-node files and update `BENCHMARKS.md`.
 
 ## Phase 12 — Viewer tab: live validation
-- [ ] Debounced background parse with generation counter.
+- [x] Debounced background parse with generation counter.
 - [ ] Status bar with valid / error `line:col`.
 - [ ] Error hints in `core` (with tests) and error mark in the editor.
 - [ ] Tolerant mode toggle with auto-fix.

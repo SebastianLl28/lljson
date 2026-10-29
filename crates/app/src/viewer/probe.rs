@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use adw::prelude::*;
 use gtk::glib;
 
+use super::validate::Validation;
 use super::{ViewerPage, file};
 use crate::devtools;
 
@@ -38,6 +39,14 @@ async fn frames(window: &adw::ApplicationWindow, count: u32) {
         glib::ControlFlow::Continue
     });
     let _ = receiver.recv().await;
+}
+
+fn validation_label(validation: &Validation) -> &'static str {
+    match validation {
+        Validation::Empty => "empty",
+        Validation::Valid => "valid",
+        Validation::Invalid(_) => "invalid",
+    }
 }
 
 fn median(samples: &mut [f64]) -> f64 {
@@ -102,6 +111,17 @@ pub fn run(page: &Rc<ViewerPage>, window: &adw::ApplicationWindow, path: PathBuf
                     sorted.last().copied().unwrap_or(0.0)
                 )
             }
+        );
+
+        let validation_start = Instant::now();
+        page.schedule_validation();
+        while page.validation().is_none() {
+            glib::timeout_future(Duration::from_millis(5)).await;
+        }
+        eprintln!(
+            "live validation (debounce + background parse): {:?} in {:.1} ms",
+            page.validation().as_deref().map(validation_label),
+            ms(validation_start.elapsed())
         );
 
         let view = page.editor.view.clone();

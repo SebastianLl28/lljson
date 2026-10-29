@@ -61,9 +61,10 @@ impl Editor {
         self.load.set(id);
         let (sender, receiver) = async_channel::bounded(1);
         let buffer = self.view.buffer();
+        // Read-only first, so that listeners can tell the clearing from a user edit.
+        self.view.set_editable(false);
         buffer.begin_irreversible_action();
         buffer.set_text("");
-        self.view.set_editable(false);
         let view = self.view.clone();
         let load = Rc::clone(&self.load);
         let mut offset = 0;
