@@ -6,6 +6,7 @@ mod file;
 mod prepare;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 pub mod probe;
+mod status;
 mod validate;
 
 use std::cell::{Cell, RefCell};
@@ -17,11 +18,13 @@ use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 
 use self::editor::Editor;
+use self::status::StatusBar;
 use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_validate};
 
 pub struct ViewerPage {
     root: adw::ToastOverlay,
     editor: Editor,
+    status: StatusBar,
     /// Id of the latest file read; results from older reads are discarded.
     generation: Cell<u64>,
     /// Outcome of the latest finished validation; `None` until the first one.
@@ -57,12 +60,15 @@ impl ViewerPage {
         let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         content.append(&bar);
         content.append(&editor.root);
+        let status = StatusBar::new();
+        content.append(&status.root);
         let root = adw::ToastOverlay::new();
         root.set_child(Some(&content));
 
         let this = Rc::new(ViewerPage {
             root,
             editor,
+            status,
             generation: Cell::new(0),
             validation: RefCell::new(None),
             validating: Generation::default(),
@@ -156,6 +162,7 @@ impl ViewerPage {
                 if let Some(this) = weak.upgrade()
                     && this.validating.is_current(id)
                 {
+                    this.status.show(&result);
                     *this.validation.borrow_mut() = Some(result);
                 }
             });
