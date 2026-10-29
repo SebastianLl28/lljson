@@ -27,6 +27,7 @@ xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 ahash = "0.8.12"
 memmap2 = "0.9.12"
 thiserror = "2.0.21"
+regex = "1.13.1"
 
 # Binaries
 anyhow = "1.0.104"

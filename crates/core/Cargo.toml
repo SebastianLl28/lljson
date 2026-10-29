@@ -11,6 +11,7 @@ ahash.workspace = true
 memmap2.workspace = true
 xxhash-rust.workspace = true
 thiserror.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

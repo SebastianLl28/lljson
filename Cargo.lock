@@ -865,6 +865,7 @@ dependencies = [
  "ahash",
  "criterion",
  "memmap2",
+ "regex",
  "serde_json",
  "simd-json",
  "thiserror",

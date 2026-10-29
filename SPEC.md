@@ -53,6 +53,7 @@ They are not updated without approval.
 | `ahash` | 0.8.12 | Fast HashMap for matching by key | core |
 | `memmap2` | 0.9.12 | Memory-mapped reading of large files | core |
 | `thiserror` | 2.0.21 | Error types in `core` | core |
+| `regex` | 1.13.1 | Regular-expression search (linear time, Unicode) | core |
 | `anyhow` | 1.0.104 | Error handling in binaries | cli, app |
 | `clap` | 4.6.7 | Command-line arguments (feature `derive`) | cli, app |
 | `async-channel` | 2.5.0 | Background thread → UI thread channel | app |

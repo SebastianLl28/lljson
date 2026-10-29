@@ -109,6 +109,22 @@ pub struct Splice {
     pub added: usize,
 }
 
+/// Which document of the comparison a node belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowSide {
+    Left,
+    Right,
+}
+
+/// Result of [`Rows::reveal`]: the row of the node and the expansions needed to show it,
+/// in the order they must be applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reveal {
+    pub position: usize,
+    /// Each splice with the row count after applying it.
+    pub splices: Vec<(Splice, usize)>,
+}
+
 /// Visible rows of one or two documents.
 ///
 /// Methods taking documents must always receive the ones the list was built with.
@@ -290,6 +306,52 @@ impl Rows {
                 wrapped: !(0..len as i64).contains(&virtual_index),
             })
         })
+    }
+
+    /// Makes `node` of `side` visible by expanding its collapsed ancestors, and returns its
+    /// row. `None` if the node is not part of the list. Each step scans the list once, so
+    /// the cost is linear times the nesting depth of the collapsed part.
+    pub fn reveal(
+        &mut self,
+        side: RowSide,
+        node: NodeId,
+        left: Option<&Document>,
+        right: Option<&Document>,
+    ) -> Option<Reveal> {
+        let doc = match side {
+            RowSide::Left => left?,
+            RowSide::Right => right?,
+        };
+        // Root first; a node at depth `d` sits at `chain[d]`.
+        let mut chain = vec![node];
+        while let Some(parent) = doc.node(*chain.last()?)?.parent() {
+            chain.push(parent);
+        }
+        chain.reverse();
+        let mut splices = Vec::new();
+        loop {
+            let cell_of = |row: &Row| match side {
+                RowSide::Left => row.left(),
+                RowSide::Right => row.right(),
+            };
+            // The visible row of the deepest ancestor (or of the node itself).
+            let (position, depth) = self
+                .rows
+                .iter()
+                .enumerate()
+                .filter_map(|(i, row)| {
+                    let cell = cell_of(row).filter(|c| c.kind != RowKind::Close)?;
+                    let depth = usize::from(row.depth);
+                    (chain.get(depth) == Some(&cell.node)).then_some((i, depth))
+                })
+                .max_by_key(|&(_, depth)| depth)?;
+            if depth + 1 == chain.len() {
+                return Some(Reveal { position, splices });
+            }
+            // Not shown yet: the visible ancestor is a collapsed container.
+            let splice = self.toggle(position, left, right)?;
+            splices.push((splice, self.rows.len()));
+        }
     }
 
     fn emit(
@@ -999,5 +1061,75 @@ mod tests {
         let diff = crate::diff(&l, &r, &DiffOptions::default());
         let stop = rows.find_change(None, Direction::Forward, Some(&l), Some(&r), &diff);
         assert_eq!(stop.map(|s| s.position), Some(2));
+    }
+
+    fn node_with_key(d: &Document, key: &str) -> NodeId {
+        (0..d.nodes().len())
+            .map(NodeId::from_index)
+            .find(|&id| d.key(id).as_deref() == Some(key))
+            .expect("key present")
+    }
+
+    #[test]
+    fn reveal_of_a_visible_node_changes_nothing() {
+        let d = doc(r#"{"a": {"b": 1}, "c": 2}"#);
+        let mut rows = Rows::new(Some(&d), None, DiffOptions::default());
+        let before = rows.len();
+        let found = rows
+            .reveal(RowSide::Left, node_with_key(&d, "b"), Some(&d), None)
+            .expect("found");
+        assert_eq!(found.position, 2);
+        assert!(found.splices.is_empty());
+        assert_eq!(rows.len(), before);
+    }
+
+    #[test]
+    fn reveal_expands_every_collapsed_ancestor() {
+        let d = doc(r#"{"a": {"b": {"c": 1, "x": 0}}, "z": 2}"#);
+        let mut rows = Rows::new(Some(&d), None, DiffOptions::default());
+        // Innermost first, so every level stays collapsed when its parent reopens.
+        for index in [2, 1, 0] {
+            rows.toggle(index, Some(&d), None).expect("collapse");
+        }
+        assert_eq!(rows.len(), 1);
+        let found = rows
+            .reveal(RowSide::Left, node_with_key(&d, "c"), Some(&d), None)
+            .expect("found");
+        assert_eq!(found.splices.len(), 3);
+        let last = found.splices.last().expect("splices");
+        assert_eq!(last.1, rows.len());
+        let text = render(&rows, Some(&d), None);
+        assert!(text[found.position].contains("\"c\": 1"), "{text:?}");
+        // Siblings stay collapsed state-wise: nothing else was toggled.
+        assert!(text.iter().any(|t| t.contains("\"z\": 2")));
+    }
+
+    #[test]
+    fn reveal_on_the_right_side_of_a_comparison() {
+        let l = doc(r#"{"k": 1}"#);
+        let r = doc(r#"{"k": 1, "deep": {"x": {"y": 5}}}"#);
+        let mut rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
+        let deep = node_with_key(&r, "deep");
+        let position = rows.get(2).map(|_| 2).expect("row exists");
+        rows.toggle(position, Some(&l), Some(&r))
+            .expect("collapse deep");
+        let found = rows
+            .reveal(RowSide::Right, node_with_key(&r, "y"), Some(&l), Some(&r))
+            .expect("found");
+        assert!(!found.splices.is_empty());
+        let row = rows.get(found.position).expect("row");
+        assert_eq!(row.left(), None);
+        assert_eq!(row.right().map(|c| c.node), Some(node_with_key(&r, "y")));
+        let _ = deep;
+    }
+
+    #[test]
+    fn reveal_without_that_document_is_none() {
+        let d = doc(r#"{"a": 1}"#);
+        let mut rows = Rows::new(Some(&d), None, DiffOptions::default());
+        assert_eq!(
+            rows.reveal(RowSide::Right, node_with_key(&d, "a"), Some(&d), None),
+            None
+        );
     }
 }

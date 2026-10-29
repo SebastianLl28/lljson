@@ -1,4 +1,4 @@
-//! lljson core: parser, arena tree, hash, formatter, diff, view rows and test generator.
+//! lljson core: parser, arena tree, hash, formatter, diff, view rows, search and test generator.
 //! No UI dependencies.
 
 mod decode;
@@ -11,6 +11,7 @@ mod hash;
 mod parser;
 mod path;
 mod rows;
+mod search;
 mod source;
 
 pub use diff::{
@@ -25,9 +26,10 @@ pub use generate::{
 pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
 pub use path::{IgnoreRule, PatternError, PatternSegment};
 pub use rows::{
-    Cell, CellText, ChangeStop, Direction, MAX_VALUE_CHARS, Row, RowKind, Rows, Splice, TokenKind,
-    cell_text,
+    Cell, CellText, ChangeStop, Direction, MAX_VALUE_CHARS, Reveal, Row, RowKind, RowSide, Rows,
+    Splice, TokenKind, cell_text,
 };
+pub use search::{MatchMode, Query, Scope, SearchError};
 pub use source::Source;
 
 pub fn version() -> &'static str {
