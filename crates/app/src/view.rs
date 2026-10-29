@@ -66,6 +66,9 @@ const DIFF_ROW_CLASSES: [&str; 5] = [
     "diff-ignored",
 ];
 
+/// Sección igual que está colapsada: se atenúa para distinguirla de las que tienen cambios.
+const EQUAL_SECTION_CLASS: &str = "diff-equal-section";
+
 /// Clase de la fila entera y de su valor para un estado. Los contenedores con cambios
 /// internos (`Contains`) no se pintan: los cambios se ven en sus hijos.
 fn diff_class(status: DiffStatus) -> Option<&'static str> {
@@ -280,7 +283,7 @@ impl RowWidgets {
         self.root.remove_css_class("json-filler");
         self.expander.set_margin_start(0);
         self.value.set_css_classes(&[]);
-        for class in DIFF_ROW_CLASSES {
+        for class in DIFF_ROW_CLASSES.into_iter().chain([EQUAL_SECTION_CLASS]) {
             self.root.remove_css_class(class);
         }
     }
@@ -351,6 +354,12 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
     if let Some(expanded) = comparison.is_expanded(position) {
         widgets.expander.set_opacity(1.0);
         widgets.expander.set_can_target(true);
+        if !expanded
+            && comparison.diff.is_some()
+            && comparison.status(side, cell) == DiffStatus::Equal
+        {
+            widgets.root.add_css_class(EQUAL_SECTION_CLASS);
+        }
         widgets.expander.set_icon_name(Some(if expanded {
             "pan-down-symbolic"
         } else {

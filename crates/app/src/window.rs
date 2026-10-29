@@ -25,6 +25,7 @@ pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.paste-right", &["<Control><Shift>v"]),
     ("win.next-change", &["F3", "<Alt>Down"]),
     ("win.prev-change", &["<Shift>F3", "<Alt>Up"]),
+    ("win.hide-equal", &["<Control>h"]),
 ];
 
 pub struct Window {
@@ -41,6 +42,8 @@ pub struct Window {
     rows_generation: Cell<u64>,
     /// Fila de la última diferencia a la que se navegó (para ir a la siguiente o anterior).
     change_cursor: Cell<Option<usize>>,
+    /// Las secciones iguales se muestran colapsadas.
+    hide_equal: Cell<bool>,
 }
 
 impl Window {
@@ -92,6 +95,13 @@ impl Window {
 
         let title = adw::WindowTitle::new("jsonlens", "");
         let header = adw::HeaderBar::builder().title_widget(&title).build();
+        header.pack_start(
+            &gtk::ToggleButton::builder()
+                .icon_name("view-conceal-symbolic")
+                .action_name("win.hide-equal")
+                .tooltip_text("Ocultar secciones iguales (Ctrl+H)")
+                .build(),
+        );
         for (icon, action, tooltip) in [
             (
                 "go-up-symbolic",
@@ -140,6 +150,7 @@ impl Window {
             right_model,
             rows_generation: Cell::new(0),
             change_cursor: Cell::new(None),
+            hide_equal: Cell::new(false),
         }
     }
 
@@ -158,6 +169,7 @@ impl Window {
             });
         }
         this.setup_navigation();
+        this.setup_hide_equal();
         this.update_title();
         this.sync_scroll();
 
@@ -185,6 +197,33 @@ impl Window {
                 }
             });
             self.window.add_action(&action);
+        }
+    }
+
+    /// Interruptor «ocultar secciones iguales»: reconstruye las filas en segundo plano.
+    fn setup_hide_equal(self: &Rc<Self>) {
+        let action = gio::SimpleAction::new_stateful("hide-equal", None, &false.to_variant());
+        action.set_enabled(false);
+        let weak = Rc::downgrade(self);
+        action.connect_activate(move |action, _| {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            let hide = !this.hide_equal.get();
+            this.hide_equal.set(hide);
+            action.set_state(&hide.to_variant());
+            this.rebuild_rows();
+        });
+        self.window.add_action(&action);
+    }
+
+    fn set_hide_equal_enabled(&self, enabled: bool) {
+        if let Some(action) = self
+            .window
+            .lookup_action("hide-equal")
+            .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+        {
+            action.set_enabled(enabled);
         }
     }
 
@@ -293,6 +332,7 @@ impl Window {
         self.rows_generation.set(generation);
         let left = self.left.document();
         let right = self.right.document();
+        let hide_equal = self.hide_equal.get();
         let (sender, receiver) = async_channel::bounded(1);
         let spawned = std::thread::Builder::new()
             .name("jsonlens-filas".to_owned())
@@ -302,7 +342,12 @@ impl Window {
                     (Some(l), Some(r)) => Some(diff(l, r, &options)),
                     _ => None,
                 };
-                let rows = Rows::new(left.as_deref(), right.as_deref(), options);
+                let rows = match (&diff, left.as_deref(), right.as_deref()) {
+                    (Some(d), Some(l), Some(r)) if hide_equal => {
+                        Rows::with_equal_collapsed(l, r, options, d)
+                    }
+                    _ => Rows::new(left.as_deref(), right.as_deref(), options),
+                };
                 let _ = sender.send_blocking(Comparison {
                     left,
                     right,
@@ -338,6 +383,7 @@ impl Window {
             }
             this.summary.update(state);
             this.change_cursor.set(None);
+            this.set_hide_equal_enabled(matches!(state, State::Compared(_)));
             this.set_navigation_enabled(matches!(state, State::Compared(s) if s.total() > 0));
             this.left.show_list();
             this.right.show_list();

@@ -136,12 +136,38 @@ impl Rows {
     /// Construye la lista con todo expandido. `options` decide cómo se emparejan los
     /// elementos de los arrays (por índice o por clave).
     pub fn new(left: Option<&Document>, right: Option<&Document>, options: DiffOptions) -> Rows {
+        Rows::build(left, right, options, None)
+    }
+
+    /// Como [`Rows::new`], pero con colapsadas las secciones iguales: cada contenedor no
+    /// vacío que el diff marca como igual en ambos lados y que no está dentro de otro
+    /// igual. Al expandir una, su contenido aparece expandido.
+    /// `diff` debe ser el resultado de comparar `left` con `right`.
+    pub fn with_equal_collapsed(
+        left: &Document,
+        right: &Document,
+        options: DiffOptions,
+        diff: &DiffResult,
+    ) -> Rows {
+        Rows::build(Some(left), Some(right), options, Some((left, right, diff)))
+    }
+
+    fn build(
+        left: Option<&Document>,
+        right: Option<&Document>,
+        options: DiffOptions,
+        collapse_equal: Option<(&Document, &Document, &DiffResult)>,
+    ) -> Rows {
         let mut rows = Rows {
             rows: Vec::new(),
             collapsed_left: vec![false; left.map_or(0, Document::node_count)],
             collapsed_right: vec![false; right.map_or(0, Document::node_count)],
             options,
         };
+        if let Some((l, r, diff)) = collapse_equal {
+            collapse_equal_sections(l, &mut rows.collapsed_left, |n| diff.left_status(n));
+            collapse_equal_sections(r, &mut rows.collapsed_right, |n| diff.right_status(n));
+        }
         let l = left.map_or(NodeId::NONE, Document::root);
         let r = right.map_or(NodeId::NONE, Document::root);
         if !l.is_none() || !r.is_none() {
@@ -352,6 +378,27 @@ fn is_change_start(
             .and_then(Node::parent)
             .is_some_and(|parent| fills_subtree(status(parent))),
         DiffStatus::Equal | DiffStatus::Ignored => false,
+    }
+}
+
+/// Marca como colapsados los contenedores no vacíos con estado `Equal` cuyo padre no es
+/// `Equal` (solo el más externo de cada sección igual).
+fn collapse_equal_sections(
+    doc: &Document,
+    collapsed: &mut [bool],
+    status: impl Fn(NodeId) -> DiffStatus,
+) {
+    for (index, node) in doc.nodes().iter().enumerate() {
+        if !node.kind().is_container() || node.child_count() == 0 {
+            continue;
+        }
+        let id = NodeId::from_index(index);
+        let parent_equal = node
+            .parent()
+            .is_some_and(|p| status(p) == DiffStatus::Equal);
+        if status(id) == DiffStatus::Equal && !parent_equal {
+            set(collapsed, id, true);
+        }
     }
 }
 
@@ -899,5 +946,76 @@ mod tests {
             rows.find_change(None, Direction::Forward, Some(&l), Some(&r), &diff),
             None
         );
+    }
+
+    fn equal_collapsed(l: &Document, r: &Document) -> Rows {
+        let options = DiffOptions::default();
+        let diff = crate::diff(l, r, &options);
+        Rows::with_equal_collapsed(l, r, options, &diff)
+    }
+
+    #[test]
+    fn equal_sections_are_collapsed_and_changes_stay_visible() {
+        let l = doc(r#"{"same":{"a":1,"b":[1,2]},"diff":{"x":1},"s":5}"#);
+        let r = doc(r#"{"same":{"a":1,"b":[1,2]},"diff":{"x":2},"s":5}"#);
+        let rows = equal_collapsed(&l, &r);
+        // `{`, `same` colapsado, `diff` abierto con `x`, cierre de `diff`, `s`, `}`.
+        assert_eq!(rows.len(), 7);
+        assert_eq!(rows.is_expanded(1, Some(&l), Some(&r)), Some(false));
+        assert_eq!(rows.is_expanded(2, Some(&l), Some(&r)), Some(true));
+        let text = render(&rows, Some(&l), Some(&r));
+        assert_eq!(text[3], "    \"x\": 1 | \"x\": 2");
+    }
+
+    #[test]
+    fn expanding_an_equal_section_shows_its_content_expanded() {
+        let l = doc(r#"{"same":{"a":1,"b":[1,2]},"x":1}"#);
+        let r = doc(r#"{"same":{"a":1,"b":[1,2]},"x":2}"#);
+        let mut rows = equal_collapsed(&l, &r);
+        assert_eq!(rows.len(), 4);
+        let splice = rows.toggle(1, Some(&l), Some(&r)).expect("expandir");
+        assert_eq!(splice.removed, 1);
+        // `same` { a, b [1, 2] } -> 7 filas; `b` no queda colapsado.
+        assert_eq!(splice.added, 7);
+        assert_eq!(rows.is_expanded(3, Some(&l), Some(&r)), Some(true));
+    }
+
+    #[test]
+    fn identical_documents_collapse_to_the_root() {
+        let l = doc(r#"{"a":[1,2],"b":{"c":3}}"#);
+        let rows = equal_collapsed(&l, &l);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.is_expanded(0, Some(&l), Some(&l)), Some(false));
+    }
+
+    #[test]
+    fn scalars_empty_containers_and_added_subtrees_are_not_collapsed() {
+        let l = doc(r#"{"e":{},"n":1}"#);
+        let r = doc(r#"{"e":{},"n":2,"new":{"k":[1]}}"#);
+        let rows = equal_collapsed(&l, &r);
+        let text = render(&rows, Some(&l), Some(&r));
+        // `{`, `e: {}`, `n`, `new: {`, `k: [`, `1`, `]`, `}`, `}`
+        assert_eq!(rows.len(), 9, "{text:#?}");
+        assert_eq!(rows.is_expanded(3, Some(&l), Some(&r)), Some(true));
+    }
+
+    #[test]
+    fn equal_elements_in_arrays_are_collapsed_by_position() {
+        let l = doc(r#"[{"id":1,"v":1},{"id":2,"v":2}]"#);
+        let r = doc(r#"[{"id":1,"v":1},{"id":2,"v":3}]"#);
+        let rows = equal_collapsed(&l, &r);
+        // `[`, `{…}` igual colapsado, `{` abierto, id, v, `}`, `]`
+        assert_eq!(rows.len(), 7);
+        assert_eq!(rows.is_expanded(1, Some(&l), Some(&r)), Some(false));
+    }
+
+    #[test]
+    fn find_change_works_with_equal_sections_collapsed() {
+        let l = doc(r#"{"same":{"a":1},"x":1,"y":2}"#);
+        let r = doc(r#"{"same":{"a":1},"x":9,"y":2}"#);
+        let rows = equal_collapsed(&l, &r);
+        let diff = crate::diff(&l, &r, &DiffOptions::default());
+        let stop = rows.find_change(None, Direction::Forward, Some(&l), Some(&r), &diff);
+        assert_eq!(stop.map(|s| s.position), Some(2));
     }
 }

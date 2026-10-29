@@ -123,3 +123,8 @@ refresco del monitor. Limitación conocida: **expandir la raíz tarda ~54 ms en 
 | `find_change`, peor caso: recorrer las 1 250 012 filas sin hallar ninguna | 3,0 ms |
 
 Se ejecuta en el hilo de la UI (meta: < 16 ms por frame).
+
+### Ocultar secciones iguales (Fase 7)
+Con los dos archivos de 1 M de nodos (`--modify 10 --type-change 5`), al activar el interruptor
+las filas pasan de 1 250 012 a **83 456**. La reconstrucción (diff + filas) corre en un hilo de
+fondo y tarda ~190 ms hasta que la vista se actualiza; el hilo de la UI solo recibe el resultado.

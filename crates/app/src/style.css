@@ -31,3 +31,5 @@
 .summary-added { background-color: alpha(#2ec27e, 0.30); }
 .summary-removed { background-color: alpha(#e01b24, 0.25); }
 .summary-modified { background-color: alpha(#f5c211, 0.40); }
+
+.json-row.diff-equal-section { opacity: 0.6; }

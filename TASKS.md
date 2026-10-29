@@ -57,7 +57,7 @@ No se avanza de fase sin confirmación.
 - [x] Colores del diff por valor.
 - [x] Barra resumen.
 - [x] Navegación siguiente/anterior diferencia con atajos.
-- [ ] Colapsar secciones iguales.
+- [x] Colapsar secciones iguales.
 
 ## Fase 8 — App: utilidades del MVP
 - [ ] Configurar clave de arrays e ignorar rutas.
