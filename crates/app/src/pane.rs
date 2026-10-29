@@ -10,14 +10,16 @@ use gtk::{gio, glib};
 use lljson_core::Document;
 
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
+use crate::search::SearchUi;
 use crate::session;
 use crate::view::RowsModel;
 
 /// Loads slower than this show the progress indicator.
 const PROGRESS_DELAY: Duration = Duration::from_millis(150);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Side {
+    #[default]
     Left,
     Right,
 }
@@ -27,6 +29,13 @@ impl Side {
         match self {
             Side::Left => "left",
             Side::Right => "right",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Side::Left => 0,
+            Side::Right => 1,
         }
     }
 
@@ -44,6 +53,8 @@ pub struct Pane {
     title: gtk::Label,
     stats: gtk::Label,
     stack: gtk::Stack,
+    /// This pane's own search box; it floats over `overlay`.
+    pub search: SearchUi,
     pub list: gtk::ListView,
     pub scrolled: gtk::ScrolledWindow,
     error: adw::StatusPage,
@@ -122,6 +133,18 @@ impl Pane {
         bar.append(&title);
         bar.append(&stats);
         bar.append(&format_button);
+        let search = SearchUi::new(side);
+        let search_toggle = gtk::ToggleButton::builder()
+            .icon_name("system-search-symbolic")
+            .tooltip_text("Search in this pane (Ctrl+F)")
+            .build();
+        search
+            .root
+            .bind_property("reveal-child", &search_toggle, "active")
+            .bidirectional()
+            .sync_create()
+            .build();
+        bar.append(&search_toggle);
         bar.append(&open);
         bar.append(&paste);
 
@@ -174,7 +197,15 @@ impl Pane {
             .build();
         root.append(&bar);
         root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        root.append(&stack);
+        let overlay = gtk::Overlay::builder()
+            .child(&stack)
+            .vexpand(true)
+            .hexpand(true)
+            .build();
+        overlay.add_overlay(&search.root);
+        // A narrow pane must not let its box spill over the other pane.
+        overlay.set_clip_overlay(&search.root, true);
+        root.append(&overlay);
 
         Rc::new(Pane {
             side,
@@ -182,6 +213,7 @@ impl Pane {
             title,
             stats,
             stack,
+            search,
             list,
             scrolled,
             error,

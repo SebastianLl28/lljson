@@ -78,6 +78,7 @@ Do not advance to the next phase without confirmation.
 - [ ] NDJSON and JSON5 support.
 - [ ] JSON ↔ YAML ↔ TOML ↔ CSV conversion.
 - [ ] Move changes from one side to the other (merge).
+- [x] Search keys and values per pane (ignores case and accents; exact and regex options).
 - [ ] Automatic reload if the file changes on disk.
 - [ ] Command palette (Ctrl+K).
 - [ ] Configurable numeric tolerance.

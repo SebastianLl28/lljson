@@ -7,6 +7,7 @@ mod loader;
 mod nodecopy;
 mod options;
 mod pane;
+mod search;
 mod session;
 mod summary;
 mod theme;

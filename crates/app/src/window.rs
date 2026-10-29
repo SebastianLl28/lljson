@@ -7,12 +7,15 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use lljson_core::{Cell as RowCell, DiffOptions, Direction, Document, Rows, Splice, diff};
+use lljson_core::{
+    Cell as RowCell, DiffOptions, Direction, Document, NodeId, Query, RowSide, Rows, Splice, diff,
+};
 
 use crate::loader::Input;
 use crate::nodecopy::{self, Copy};
 use crate::options::{self, OptionsText};
 use crate::pane::{Pane, Side};
+use crate::search::{SearchState, count_text};
 use crate::session;
 use crate::summary::{State, SummaryBar};
 use crate::theme::{self, THEMES};
@@ -32,6 +35,9 @@ pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.hide-equal", &["<Control>h"]),
     ("win.diff-options", &["<Control>comma"]),
     ("win.compare-clipboard", &["<Control><Shift>k"]),
+    ("win.search", &["<Control>f"]),
+    ("win.search-next", &["<Control>g"]),
+    ("win.search-prev", &["<Control><Shift>g"]),
 ];
 
 pub struct Window {
@@ -50,6 +56,10 @@ pub struct Window {
     hide_equal: Cell<bool>,
     diff_options: RefCell<DiffOptions>,
     options_text: RefCell<OptionsText>,
+    /// Id of the latest search request of each pane; stale results are dropped.
+    search_generation: [Cell<u64>; 2],
+    /// Pane whose search `Ctrl+G` steps through: the one used last.
+    active_search: Cell<Side>,
 }
 
 impl Window {
@@ -208,6 +218,8 @@ impl Window {
             hide_equal: Cell::new(false),
             diff_options: RefCell::new(DiffOptions::default()),
             options_text: RefCell::new(OptionsText::default()),
+            search_generation: [Cell::new(0), Cell::new(0)],
+            active_search: Cell::new(Side::Left),
         }
     }
 
@@ -230,6 +242,7 @@ impl Window {
         this.setup_options();
         this.setup_compare_clipboard();
         this.setup_theme();
+        this.setup_search();
         this.update_transform_actions();
         this.update_title();
         this.sync_scroll();
@@ -257,6 +270,308 @@ impl Window {
             });
             self.window.add_action(&action);
         }
+    }
+
+    fn setup_search(self: &Rc<Self>) {
+        let open = gio::SimpleAction::new("search", None);
+        let weak = Rc::downgrade(self);
+        open.connect_activate(move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.open_search();
+            }
+        });
+        self.window.add_action(&open);
+        // Ctrl+G and Ctrl+Shift+G act on the pane searched last.
+        for (name, direction) in [
+            ("search-next", Direction::Forward),
+            ("search-prev", Direction::Backward),
+        ] {
+            let action = gio::SimpleAction::new(name, None);
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, _| {
+                if let Some(this) = weak.upgrade() {
+                    this.step_match(this.active_search.get(), direction);
+                }
+            });
+            self.window.add_action(&action);
+        }
+        self.setup_search_side(Side::Left);
+        self.setup_search_side(Side::Right);
+    }
+
+    /// Wires one pane's search box; the two panes never share state.
+    fn setup_search_side(self: &Rc<Self>, side: Side) {
+        for (name, direction) in [
+            ("search-next", Some(Direction::Forward)),
+            ("search-prev", Some(Direction::Backward)),
+            ("search-close", None),
+        ] {
+            let action = gio::SimpleAction::new(&format!("{name}-{}", side.name()), None);
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, _| {
+                if let Some(this) = weak.upgrade() {
+                    match direction {
+                        Some(direction) => this.step_match(side, direction),
+                        None => this.close_search(side),
+                    }
+                }
+            });
+            self.window.add_action(&action);
+        }
+        let ui = &self.pane(side).search;
+        let weak = Rc::downgrade(self);
+        ui.entry.connect_search_changed(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.run_search(side, true);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        ui.entry.connect_activate(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.step_match(side, Direction::Forward);
+            }
+        });
+        // Capture phase: the entry would otherwise also treat Shift+Enter as "activate".
+        let keys = gtk::EventControllerKey::new();
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let weak = Rc::downgrade(self);
+        keys.connect_key_pressed(move |_, key, _, state| {
+            let enter = matches!(key, gdk::Key::Return | gdk::Key::KP_Enter);
+            match weak.upgrade() {
+                Some(this) if enter && state.contains(gdk::ModifierType::SHIFT_MASK) => {
+                    this.step_match(side, Direction::Backward);
+                    glib::Propagation::Stop
+                }
+                _ => glib::Propagation::Proceed,
+            }
+        });
+        ui.entry.add_controller(keys);
+        let focus = gtk::EventControllerFocus::new();
+        let weak = Rc::downgrade(self);
+        focus.connect_contains_focus_notify(move |focus| {
+            if let Some(this) = weak.upgrade()
+                && focus.contains_focus()
+            {
+                this.active_search.set(side);
+            }
+        });
+        ui.entry.add_controller(focus);
+        let weak = Rc::downgrade(self);
+        ui.connect_options_changed(move || {
+            if let Some(this) = weak.upgrade() {
+                this.run_search(side, true);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        ui.root.connect_reveal_child_notify(move |root| {
+            if let Some(this) = weak.upgrade()
+                && !root.reveals_child()
+            {
+                this.clear_search(side);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        ui.entry.connect_stop_search(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.close_search(side);
+            }
+        });
+    }
+
+    /// Shows the search box of the pane that has the focus (the left one if none).
+    fn open_search(self: &Rc<Self>) {
+        let focus = RootExt::focus(&self.window);
+        let inside = |side: Side| {
+            focus
+                .as_ref()
+                .is_some_and(|w| w.is_ancestor(&self.pane(side).root))
+        };
+        let side = if inside(Side::Right) {
+            Side::Right
+        } else if inside(Side::Left) {
+            Side::Left
+        } else {
+            self.active_search.get()
+        };
+        self.open_search_in(side);
+    }
+
+    fn open_search_in(self: &Rc<Self>, side: Side) {
+        self.active_search.set(side);
+        let ui = &self.pane(side).search;
+        ui.entry
+            .set_placeholder_text(Some(&format!("Search in {}…", self.pane(side).title())));
+        ui.set_open(true);
+        ui.entry.grab_focus();
+        ui.entry.select_region(0, -1);
+        if !ui.entry.text().is_empty() {
+            self.run_search(side, true);
+        }
+    }
+
+    fn close_search(&self, side: Side) {
+        self.pane(side).search.set_open(false);
+        self.pane(side).list.grab_focus();
+    }
+
+    /// Searches `side`'s document on a background thread; with `jump`, the first result is
+    /// shown when it arrives.
+    fn run_search(self: &Rc<Self>, side: Side, jump: bool) {
+        let generation = &self.search_generation[side.index()];
+        let id = generation.get() + 1;
+        generation.set(id);
+        let ui = &self.pane(side).search;
+        let text = ui.entry.text().to_string();
+        let query = match Query::new(&text, ui.mode(), ui.scope()) {
+            Ok(query) => query,
+            Err(err) => {
+                ui.set_error(Some(&err.to_string()));
+                ui.set_count("Invalid regex");
+                self.reset_matches(side);
+                return;
+            }
+        };
+        ui.set_error(None);
+        let document = self.pane(side).document();
+        let Some(document) = document.filter(|_| !text.is_empty()) else {
+            ui.set_count("");
+            self.reset_matches(side);
+            return;
+        };
+        let (sender, receiver) = async_channel::bounded(1);
+        let spawned = std::thread::Builder::new()
+            .name("lljson-search".to_owned())
+            .spawn(move || {
+                let _ = sender.send_blocking(query.find(&document));
+            });
+        if let Err(err) = spawned {
+            self.toast(&format!("Could not start the search: {err}"));
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let Ok(matches) = receiver.recv().await else {
+                return;
+            };
+            if let Some(this) = weak.upgrade()
+                && this.search_generation[side.index()].get() == id
+            {
+                this.set_matches(side, matches, jump);
+            }
+        });
+    }
+
+    fn set_matches(self: &Rc<Self>, side: Side, matches: Vec<NodeId>, jump: bool) {
+        let total = matches.len();
+        {
+            let mut comparison = self.comparison.borrow_mut();
+            let search = comparison.search_mut(side);
+            search.matches = matches;
+            search.current = None;
+        }
+        self.pane(side).search.set_count(&count_text(None, total));
+        self.refresh_visible();
+        if jump && total > 0 {
+            self.go_to_match(side, 0);
+        }
+    }
+
+    fn reset_matches(&self, side: Side) {
+        self.comparison.borrow_mut().search_mut(side).clear();
+        self.refresh_visible();
+    }
+
+    fn clear_search(&self, side: Side) {
+        let generation = &self.search_generation[side.index()];
+        generation.set(generation.get() + 1);
+        self.reset_matches(side);
+    }
+
+    fn step_match(self: &Rc<Self>, side: Side, direction: Direction) {
+        let (current, total) = {
+            let comparison = self.comparison.borrow();
+            let search = comparison.search(side);
+            (search.current, search.matches.len())
+        };
+        if total == 0 {
+            return;
+        }
+        let index = match (direction, current) {
+            (Direction::Forward, None) => 0,
+            (Direction::Forward, Some(i)) => (i + 1) % total,
+            (Direction::Backward, None) => total - 1,
+            (Direction::Backward, Some(i)) => (i + total - 1) % total,
+        };
+        self.go_to_match(side, index);
+    }
+
+    /// Makes result `index` of `side` the current one: expands what hides it and scrolls to it.
+    fn go_to_match(self: &Rc<Self>, side: Side, index: usize) {
+        let (node, total) = {
+            let comparison = self.comparison.borrow();
+            let search = comparison.search(side);
+            (search.matches.get(index).copied(), search.matches.len())
+        };
+        let Some(node) = node else {
+            return;
+        };
+        let reveal = {
+            let mut comparison = self.comparison.borrow_mut();
+            comparison.search_mut(side).current = Some(index);
+            let Comparison {
+                left, right, rows, ..
+            } = &mut *comparison;
+            let row_side = match side {
+                Side::Left => RowSide::Left,
+                Side::Right => RowSide::Right,
+            };
+            rows.reveal(row_side, node, left.as_deref(), right.as_deref())
+        };
+        self.pane(side)
+            .search
+            .set_count(&count_text(Some(index), total));
+        let Some(reveal) = reveal else {
+            self.toast("Could not show that result");
+            return;
+        };
+        for (splice, len) in &reveal.splices {
+            self.change_cursor
+                .set(self.change_cursor.get().map(|c| shift_cursor(c, *splice)));
+            for model in [&self.left_model, &self.right_model] {
+                model.splice(splice.position, splice.removed, splice.added, *len);
+            }
+        }
+        self.refresh_visible();
+        // After layout: the new rows have no height yet, so positions would be off.
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(this) = weak.upgrade() {
+                this.scroll_to_centered(reveal.position);
+            }
+        });
+    }
+
+    /// Rebinds the rows on screen (and a few around them) so highlights follow the search.
+    fn refresh_visible(&self) {
+        let adjustment = self.left.scrolled.vadjustment();
+        let len = self.comparison.borrow().rows.len();
+        if len == 0 || adjustment.upper() <= 0.0 {
+            return;
+        }
+        let row_height = adjustment.upper() / len as f64;
+        let first = ((adjustment.value() / row_height) as usize).saturating_sub(4);
+        let count = ((adjustment.page_size() / row_height) as usize + 10).min(len - first.min(len));
+        for model in [&self.left_model, &self.right_model] {
+            model.splice(first, count, count, len);
+        }
+    }
+
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn search_for_test(self: &Rc<Self>, text: &str, side: Side, scope: u32, mode: u32) {
+        let ui = &self.pane(side).search;
+        ui.select_options(scope, mode);
+        ui.set_open(true);
+        ui.entry.set_text(text);
     }
 
     fn setup_hide_equal(self: &Rc<Self>) {
@@ -466,6 +781,7 @@ impl Window {
                     right,
                     rows,
                     diff,
+                    search: [SearchState::default(), SearchState::default()],
                 });
             });
         if let Err(err) = spawned {
@@ -508,6 +824,11 @@ impl Window {
             this.set_navigation_enabled(matches!(state, State::Compared(s) if s.total() > 0));
             this.left.show_list();
             this.right.show_list();
+            for side in [Side::Left, Side::Right] {
+                if this.pane(side).search.is_open() {
+                    this.run_search(side, false);
+                }
+            }
             #[cfg(any(debug_assertions, feature = "devtools"))]
             crate::devtools::rows_ready(len);
             // Free the previous documents only after the view is updated.

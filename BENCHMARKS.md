@@ -128,3 +128,19 @@ Runs on the UI thread (goal: < 16 ms per frame).
 With the two 1 M-node files (`--modify 10 --type-change 5`), turning the switch on
 takes the rows from 1,250,012 to **83,456**. The rebuild (diff + rows) runs on a background
 thread and takes ~190 ms until the view updates; the UI thread only receives the result.
+
+### Search — `Query::find` (Phase 10)
+12 threads, release profile, `stress_5000000.json` (19,282,827 nodes), search over keys and
+values on background threads (the UI thread only receives the result):
+
+| Query | Mode / scope | Hits | Time |
+|---|---|---|---|
+| `key_0000138` | Normal / both | 1 | 108 ms |
+| `comilla` | Normal / values | 79,323 | 91 ms |
+| `ZZZ_no_existe` | Normal / both | 0 | 102 ms |
+| `true` | Normal / values | 1,071,607 | 92 ms |
+| `Comilla` | Exact / values | 0 | 94 ms |
+| `^s_a8[0-9a-f]+$` | Regex / values | 0 | 169 ms |
+
+Parsing the same file takes 1.06 s. `Rows::reveal` (expanding the ancestors of a result) runs on
+the UI thread, like a manual expand; it scans the visible rows once per collapsed level.

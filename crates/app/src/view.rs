@@ -8,9 +8,10 @@ use std::sync::Arc;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
-use lljson_core::{Cell, DiffResult, DiffStatus, Document, Rows, TokenKind, cell_text};
+use lljson_core::{Cell, DiffResult, DiffStatus, Document, RowKind, Rows, TokenKind, cell_text};
 
 use crate::pane::Side;
+use crate::search::SearchState;
 
 const INDENT_PX: i32 = 16;
 /// Indentation stops growing past this depth.
@@ -65,6 +66,9 @@ const DIFF_ROW_CLASSES: [&str; 5] = [
 /// Collapsed equal section: dimmed to tell it apart from sections with changes.
 const EQUAL_SECTION_CLASS: &str = "diff-equal-section";
 
+const SEARCH_MATCH_CLASS: &str = "search-match";
+const SEARCH_CURRENT_CLASS: &str = "search-current";
+
 /// `Contains` containers are not painted: the changes show on their children.
 fn diff_class(status: DiffStatus) -> Option<&'static str> {
     match status {
@@ -84,9 +88,19 @@ pub struct Comparison {
     pub right: Option<Arc<Document>>,
     pub rows: Rows,
     pub diff: Option<DiffResult>,
+    /// Indexed by [`Side::index`]: each pane has its own search.
+    pub search: [SearchState; 2],
 }
 
 impl Comparison {
+    pub fn search(&self, side: Side) -> &SearchState {
+        &self.search[side.index()]
+    }
+
+    pub fn search_mut(&mut self, side: Side) -> &mut SearchState {
+        &mut self.search[side.index()]
+    }
+
     fn document(&self, side: Side) -> Option<&Document> {
         match side {
             Side::Left => self.left.as_deref(),
@@ -273,7 +287,11 @@ impl RowWidgets {
         self.root.remove_css_class("json-filler");
         self.expander.set_margin_start(0);
         self.value.set_css_classes(&[]);
-        for class in DIFF_ROW_CLASSES.into_iter().chain([EQUAL_SECTION_CLASS]) {
+        for class in DIFF_ROW_CLASSES.into_iter().chain([
+            EQUAL_SECTION_CLASS,
+            SEARCH_MATCH_CLASS,
+            SEARCH_CURRENT_CLASS,
+        ]) {
             self.root.remove_css_class(class);
         }
     }
@@ -370,6 +388,14 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
         } else {
             "pan-end-symbolic"
         }));
+    }
+    // A container's closing row repeats its node: only the opening row is highlighted.
+    let search = comparison.search(side);
+    if cell.kind != RowKind::Close && search.is_match(cell.node) {
+        widgets.root.add_css_class(SEARCH_MATCH_CLASS);
+        if search.is_current(cell.node) {
+            widgets.root.add_css_class(SEARCH_CURRENT_CLASS);
+        }
     }
     let text = cell_text(doc, cell);
     if let Some(key) = &text.key {

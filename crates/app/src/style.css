@@ -35,3 +35,19 @@
 
 .options-rules { border: 1px solid alpha(currentColor, 0.25); border-radius: 8px; }
 .options-rules textview, .options-rules text { background: transparent; }
+
+/* Search results; the extra selector part keeps them above diff tints of any theme. */
+.json-view .json-row.search-match { background-color: alpha(@accent_bg_color, 0.22); }
+.json-view .json-row.search-current {
+  background-color: alpha(@accent_bg_color, 0.5);
+  box-shadow: inset 3px 0 0 @accent_bg_color;
+}
+
+/* Floating search box over a pane. */
+.search-box {
+  background-color: @popover_bg_color;
+  color: @popover_fg_color;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 2px 12px alpha(black, 0.35), 0 0 0 1px alpha(currentColor, 0.15);
+}

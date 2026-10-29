@@ -7,6 +7,10 @@
 //! - `LLJSON_GOTO=n,n,p`: next (`n`) / previous (`p`) difference, in order.
 //! - `LLJSON_ACTIONS=win.hide-equal,...`: activate window actions (`action::param@ms`).
 //! - `LLJSON_PRINT_CLIPBOARD=1`: print the clipboard just before the screenshot.
+//! - `LLJSON_SEARCH=text`: open the search bar with that text (`LLJSON_SEARCH_SIDE=0|1`,
+//!   `LLJSON_SEARCH_SCOPE=0|1|2`, `LLJSON_SEARCH_MODE=0|1|2`); `LLJSON_SEARCH_OTHER=text`
+//!   also searches the opposite pane. Activate `win.search-next-left|right` with
+//!   `LLJSON_ACTIONS` to step through results.
 //! - `LLJSON_ARRAY_KEY=id`, `LLJSON_IGNORE=rule;rule`: comparison options.
 //! - `LLJSON_COPY=side:row:path|value`: copy a path or value and print the clipboard.
 //! - `LLJSON_NODE_MENU=side:row`: open a row's context menu.
@@ -73,6 +77,28 @@ pub fn install(app_window: &Rc<Window>) {
                 }
             })));
         });
+    }
+    if let Ok(text) = std::env::var("LLJSON_SEARCH") {
+        let number = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(0)
+        };
+        let side = if number("LLJSON_SEARCH_SIDE") == 1 {
+            Side::Right
+        } else {
+            Side::Left
+        };
+        app_window.search_for_test(
+            &text,
+            side,
+            number("LLJSON_SEARCH_SCOPE"),
+            number("LLJSON_SEARCH_MODE"),
+        );
+        if let Ok(other) = std::env::var("LLJSON_SEARCH_OTHER") {
+            app_window.search_for_test(&other, side.other(), 0, 0);
+        }
     }
     let array_key = std::env::var("LLJSON_ARRAY_KEY").unwrap_or_default();
     let ignore = std::env::var("LLJSON_IGNORE").unwrap_or_default();
