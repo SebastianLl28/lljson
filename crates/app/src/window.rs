@@ -30,6 +30,7 @@ pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.prev-change", &["<Shift>F3", "<Alt>Up"]),
     ("win.hide-equal", &["<Control>h"]),
     ("win.diff-options", &["<Control>comma"]),
+    ("win.compare-clipboard", &["<Control><Shift>k"]),
 ];
 
 pub struct Window {
@@ -118,6 +119,19 @@ impl Window {
 
         let title = adw::WindowTitle::new("jsonlens", "");
         let header = adw::HeaderBar::builder().title_widget(&title).build();
+        let menu = gio::Menu::new();
+        menu.append(
+            Some("Comparar portapapeles con archivo…"),
+            Some("win.compare-clipboard"),
+        );
+        header.pack_end(
+            &gtk::MenuButton::builder()
+                .icon_name("open-menu-symbolic")
+                .menu_model(&menu)
+                .primary(true)
+                .tooltip_text("Menú principal")
+                .build(),
+        );
         header.pack_end(
             &gtk::Button::builder()
                 .icon_name("preferences-system-symbolic")
@@ -203,6 +217,7 @@ impl Window {
         this.setup_navigation();
         this.setup_hide_equal();
         this.setup_options();
+        this.setup_compare_clipboard();
         this.update_title();
         this.sync_scroll();
 
@@ -246,6 +261,17 @@ impl Window {
             this.hide_equal.set(hide);
             action.set_state(&hide.to_variant());
             this.rebuild_rows();
+        });
+        self.window.add_action(&action);
+    }
+
+    fn setup_compare_clipboard(self: &Rc<Self>) {
+        let action = gio::SimpleAction::new("compare-clipboard", None);
+        let weak = Rc::downgrade(self);
+        action.connect_activate(move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.compare_clipboard_with_file();
+            }
         });
         self.window.add_action(&action);
     }
@@ -575,6 +601,11 @@ impl Window {
     }
 
     fn open_file(self: &Rc<Self>, side: Side) {
+        self.choose_file(move |this, file| this.load_file(side, &file));
+    }
+
+    /// Pide un archivo con el selector y llama a `on_file` si el usuario elige uno.
+    fn choose_file(self: &Rc<Self>, on_file: impl FnOnce(&Rc<Window>, gio::File) + 'static) {
         let json = gtk::FileFilter::new();
         json.set_name(Some("JSON"));
         json.add_mime_type("application/json");
@@ -601,11 +632,55 @@ impl Window {
                 return;
             };
             match result {
-                Ok(file) => this.load_file(side, &file),
+                Ok(file) => on_file(&this, file),
                 Err(err) if err.matches(gtk::DialogError::Dismissed) => {}
                 Err(err) => this.toast(&format!("No se pudo abrir el archivo: {err}")),
             }
         });
+    }
+
+    /// Compara el texto del portapapeles (a la derecha) con un archivo (a la izquierda).
+    /// El portapapeles se lee antes de abrir el selector para avisar enseguida si no hay texto.
+    fn compare_clipboard_with_file(self: &Rc<Self>) {
+        self.read_clipboard(|this, text| {
+            this.choose_file(move |this, file| this.compare_text_with_file(text, &file));
+        });
+    }
+
+    /// Lee el texto del portapapeles y se lo da a `then`; si no hay texto, avisa.
+    fn read_clipboard(self: &Rc<Self>, then: impl FnOnce(&Rc<Window>, String) + 'static) {
+        let clipboard = self.window.clipboard();
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let result = clipboard.read_text_future().await;
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            match result {
+                Ok(Some(text)) => then(&this, text.into()),
+                Ok(None) => this.toast("El portapapeles no contiene texto"),
+                Err(err) => this.toast(&format!("No se pudo leer el portapapeles: {err}")),
+            }
+        });
+    }
+
+    fn compare_text_with_file(&self, text: String, file: &gio::File) {
+        self.load_file(Side::Left, file);
+        self.load(
+            Side::Right,
+            Input::Text {
+                name: "Portapapeles".to_owned(),
+                text,
+            },
+        );
+    }
+
+    /// Como «comparar portapapeles con archivo» pero con el archivo ya elegido
+    /// (herramientas de desarrollo).
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn compare_clipboard_with_path(self: &Rc<Self>, path: &std::path::Path) {
+        let file = gio::File::for_path(path);
+        self.read_clipboard(move |this, text| this.compare_text_with_file(text, &file));
     }
 
     fn load_file(&self, side: Side, file: &gio::File) {

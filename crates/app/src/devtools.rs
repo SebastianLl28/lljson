@@ -14,6 +14,7 @@
 //! - `JSONLENS_ARRAY_KEY=id` y `JSONLENS_IGNORE=regla;regla`: opciones de comparación.
 //! - `JSONLENS_COPY=lado:fila:path|value`: copia la ruta o el valor y escribe el
 //!   portapapeles. `JSONLENS_NODE_MENU=lado:fila`: abre el menú contextual de una fila.
+//! - `JSONLENS_CLIPBOARD_FILE=a.json:b.json`: compara `a.json` con el portapapeles (`b.json`).
 //! - `JSONLENS_SCROLL=px`: desplaza el panel izquierdo 300 ms antes de la captura.
 //! - `JSONLENS_SCROLL_TEST=segundos`: cuando las filas están listas, hace scroll continuo
 //!   la mitad del tiempo y saltos aleatorios la otra mitad, mide la duración de cada
@@ -89,6 +90,15 @@ pub fn install(app_window: &Rc<Window>) {
             array_key,
             ignore: ignore.replace(';', "\n"),
         });
+    }
+    // `JSONLENS_CLIPBOARD_FILE=a.json:b.json`: copia `b.json` al portapapeles y lo compara
+    // con `a.json` como lo haría «comparar portapapeles con archivo».
+    if let Ok(spec) = std::env::var("JSONLENS_CLIPBOARD_FILE")
+        && let Some((file, clip)) = spec.split_once(':')
+    {
+        let text = std::fs::read_to_string(clip).unwrap_or_default();
+        app_window.window.clipboard().set_text(&text);
+        app_window.compare_clipboard_with_path(std::path::Path::new(file));
     }
     schedule_screenshot(app_window);
 }

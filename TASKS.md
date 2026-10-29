@@ -62,7 +62,7 @@ No se avanza de fase sin confirmación.
 ## Fase 8 — App: utilidades del MVP
 - [x] Configurar clave de arrays e ignorar rutas.
 - [x] Copiar ruta y valor de nodo.
-- [ ] Comparar portapapeles contra archivo.
+- [x] Comparar portapapeles contra archivo.
 - [ ] Botones de formatear/minificar/ordenar.
 - [ ] Tema claro/oscuro del sistema.
 
