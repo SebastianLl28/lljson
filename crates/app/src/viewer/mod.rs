@@ -119,6 +119,9 @@ impl ViewerPage {
     fn setup_drop(self: &Rc<Self>) {
         let target = gtk::DropTarget::new(glib::Type::INVALID, gdk::DragAction::COPY);
         target.set_types(&[gdk::FileList::static_type(), String::static_type()]);
+        // The text view has its own drop target that accepts the plain-text form of a dropped
+        // file; capturing first makes files open instead of pasting their path.
+        target.set_propagation_phase(gtk::PropagationPhase::Capture);
         let weak = Rc::downgrade(self);
         target.connect_drop(move |_, value, _, _| {
             weak.upgrade().is_some_and(|this| this.drop_value(value))
