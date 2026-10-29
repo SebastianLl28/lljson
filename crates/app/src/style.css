@@ -10,3 +10,17 @@
 .json-filler {
   background-image: repeating-linear-gradient(-45deg, alpha(currentColor, 0.06) 0 2px, transparent 2px 7px);
 }
+
+/* Diff: la fila entera lleva un tinte suave y el valor exacto un fondo más marcado.
+   Verde = añadido, rojo = eliminado, amarillo = modificado, naranja = cambio de tipo. */
+.json-row.diff-added { background-color: alpha(#2ec27e, 0.14); }
+.json-row.diff-removed { background-color: alpha(#e01b24, 0.12); }
+.json-row.diff-modified { background-color: alpha(#f5c211, 0.14); }
+.json-row.diff-type-changed { background-color: alpha(#ff7800, 0.14); }
+.json-row.diff-ignored { opacity: 0.55; }
+.json-value.diff-added, .json-value.diff-removed,
+.json-value.diff-modified, .json-value.diff-type-changed { border-radius: 4px; padding: 0 4px; }
+.json-value.diff-added { background-color: alpha(#2ec27e, 0.35); }
+.json-value.diff-removed { background-color: alpha(#e01b24, 0.30); }
+.json-value.diff-modified { background-color: alpha(#f5c211, 0.45); }
+.json-value.diff-type-changed { background-color: alpha(#ff7800, 0.40); }

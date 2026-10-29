@@ -7,7 +7,7 @@ use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use jsonlens_core::{DiffOptions, Rows};
+use jsonlens_core::{DiffOptions, Rows, diff};
 
 use crate::loader::Input;
 use crate::pane::{Pane, Side};
@@ -167,8 +167,18 @@ impl Window {
         let spawned = std::thread::Builder::new()
             .name("jsonlens-filas".to_owned())
             .spawn(move || {
-                let rows = Rows::new(left.as_deref(), right.as_deref(), DiffOptions::default());
-                let _ = sender.send_blocking(Comparison { left, right, rows });
+                let options = DiffOptions::default();
+                let diff = match (left.as_deref(), right.as_deref()) {
+                    (Some(l), Some(r)) => Some(diff(l, r, &options)),
+                    _ => None,
+                };
+                let rows = Rows::new(left.as_deref(), right.as_deref(), options);
+                let _ = sender.send_blocking(Comparison {
+                    left,
+                    right,
+                    rows,
+                    diff,
+                });
             });
         if let Err(err) = spawned {
             self.toast(&format!("No se pudo preparar la vista: {err}"));
@@ -211,7 +221,9 @@ impl Window {
     pub fn toggle(&self, position: u32) {
         let (splice, len) = {
             let mut comparison = self.comparison.borrow_mut();
-            let Comparison { left, right, rows } = &mut *comparison;
+            let Comparison {
+                left, right, rows, ..
+            } = &mut *comparison;
             let splice = rows.toggle(position as usize, left.as_deref(), right.as_deref());
             (splice, rows.len())
         };

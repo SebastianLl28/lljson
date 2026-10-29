@@ -54,7 +54,7 @@ No se avanza de fase sin confirmación.
 - [x] Probar con el archivo de 1 millón de nodos (fluidez y memoria).
 
 ## Fase 7 — App: diff visual
-- [ ] Colores del diff por valor.
+- [x] Colores del diff por valor.
 - [ ] Barra resumen.
 - [ ] Navegación siguiente/anterior diferencia con atajos.
 - [ ] Colapsar secciones iguales.

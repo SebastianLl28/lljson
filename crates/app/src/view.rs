@@ -9,7 +9,7 @@ use std::sync::Arc;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
-use jsonlens_core::{Cell, Document, Rows, TokenKind, cell_text};
+use jsonlens_core::{Cell, DiffResult, DiffStatus, Document, Rows, TokenKind, cell_text};
 
 use crate::pane::Side;
 
@@ -57,12 +57,36 @@ fn token_class(kind: TokenKind) -> &'static str {
     }
 }
 
+/// Clases CSS del diff que se ponen en la raíz de la fila y en el valor (ver `style.css`).
+const DIFF_ROW_CLASSES: [&str; 5] = [
+    "diff-added",
+    "diff-removed",
+    "diff-modified",
+    "diff-type-changed",
+    "diff-ignored",
+];
+
+/// Clase de la fila entera y de su valor para un estado. Los contenedores con cambios
+/// internos (`Contains`) no se pintan: los cambios se ven en sus hijos.
+fn diff_class(status: DiffStatus) -> Option<&'static str> {
+    match status {
+        DiffStatus::Added => Some("diff-added"),
+        DiffStatus::Removed => Some("diff-removed"),
+        DiffStatus::Modified => Some("diff-modified"),
+        DiffStatus::TypeChanged => Some("diff-type-changed"),
+        DiffStatus::Ignored => Some("diff-ignored"),
+        DiffStatus::Equal | DiffStatus::Contains => None,
+    }
+}
+
 /// Documentos que se muestran y sus filas alineadas (construidas para esos documentos).
+/// `diff` solo existe cuando hay dos documentos.
 #[derive(Default)]
 pub struct Comparison {
     pub left: Option<Arc<Document>>,
     pub right: Option<Arc<Document>>,
     pub rows: Rows,
+    pub diff: Option<DiffResult>,
 }
 
 impl Comparison {
@@ -79,6 +103,15 @@ impl Comparison {
             Side::Left => row.left(),
             Side::Right => row.right(),
         }
+    }
+
+    fn status(&self, side: Side, cell: Cell) -> DiffStatus {
+        self.diff
+            .as_ref()
+            .map_or(DiffStatus::Equal, |d| match side {
+                Side::Left => d.left_status(cell.node),
+                Side::Right => d.right_status(cell.node),
+            })
     }
 
     /// `Some(expandido)` si la fila muestra un contenedor que se puede expandir o colapsar.
@@ -231,7 +264,11 @@ impl RowWidgets {
         self.expander.set_opacity(0.0);
         self.expander.set_can_target(false);
         self.root.remove_css_class("json-filler");
-        self.root.set_margin_start(0);
+        self.expander.set_margin_start(0);
+        self.value.set_css_classes(&[]);
+        for class in DIFF_ROW_CLASSES {
+            self.root.remove_css_class(class);
+        }
     }
 }
 
@@ -294,7 +331,7 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
     };
     let depth = comparison.rows.get(position).map_or(0, |r| r.depth());
     widgets
-        .root
+        .expander
         .set_margin_start(i32::from(depth.min(MAX_INDENT_DEPTH)) * INDENT_PX);
 
     if let Some(expanded) = comparison.is_expanded(position) {
@@ -311,13 +348,43 @@ fn bind(widgets: &RowWidgets, side: Side, comparison: &Comparison, position: usi
         widgets.key.set_label(&format!("{key}: "));
     }
     widgets.value.set_label(&text.value);
-    widgets
-        .value
-        .set_css_classes(&[token_class(text.value_kind)]);
+    let mut value_classes = vec!["json-value", token_class(text.value_kind)];
+    if let Some(class) = diff_class(comparison.status(side, cell)) {
+        widgets.root.add_css_class(class);
+        value_classes.push(class);
+    }
+    widgets.value.set_css_classes(&value_classes);
     if text.comma {
         widgets.comma.set_label(",");
     }
     if let Some(summary) = &text.summary {
         widgets.summary.set_label(summary);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_painted_status_has_a_declared_class() {
+        let painted = [
+            DiffStatus::Added,
+            DiffStatus::Removed,
+            DiffStatus::Modified,
+            DiffStatus::TypeChanged,
+            DiffStatus::Ignored,
+        ];
+        for status in painted {
+            let class = diff_class(status).expect("estado pintado");
+            assert!(DIFF_ROW_CLASSES.contains(&class), "{class}");
+        }
+        assert_eq!(DIFF_ROW_CLASSES.len(), painted.len());
+    }
+
+    #[test]
+    fn equal_rows_and_containers_with_changes_are_not_painted() {
+        assert_eq!(diff_class(DiffStatus::Equal), None);
+        assert_eq!(diff_class(DiffStatus::Contains), None);
     }
 }

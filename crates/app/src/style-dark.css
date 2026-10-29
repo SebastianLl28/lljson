@@ -4,3 +4,13 @@
 .json-number { color: #ffa348; }
 .json-bool { color: #6fd3c7; }
 .json-null { color: #9a9996; }
+
+/* Diff (tema oscuro): tintes algo más fuertes sobre el fondo oscuro. */
+.json-row.diff-added { background-color: alpha(#57e389, 0.16); }
+.json-row.diff-removed { background-color: alpha(#ff7b63, 0.16); }
+.json-row.diff-modified { background-color: alpha(#f8e45c, 0.14); }
+.json-row.diff-type-changed { background-color: alpha(#ffa348, 0.16); }
+.json-value.diff-added { background-color: alpha(#57e389, 0.35); }
+.json-value.diff-removed { background-color: alpha(#ff7b63, 0.35); }
+.json-value.diff-modified { background-color: alpha(#f8e45c, 0.30); }
+.json-value.diff-type-changed { background-color: alpha(#ffa348, 0.35); }
