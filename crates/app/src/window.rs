@@ -8,7 +8,8 @@ use std::sync::Arc;
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use lljson_core::{
-    Cell as RowCell, DiffOptions, Direction, Document, NodeId, Query, RowSide, Rows, Splice, diff,
+    Cell as RowCell, DiffOptions, Direction, Document, Indent, NodeId, Query, RowSide, Rows,
+    Splice, diff,
 };
 
 use crate::loader::Input;
@@ -47,6 +48,9 @@ pub const ACCELS: &[(&str, &[&str])] = &[
 pub const VIEWER_ACCELS: &[(&str, &[&str])] = &[
     ("win.viewer-open", &["<Control>o"]),
     ("win.viewer-copy-all", &["<Control><Shift>c"]),
+    ("win.viewer-format", &["<Control><Shift>f"]),
+    ("win.viewer-minify", &["<Control><Shift>m"]),
+    ("win.viewer-sort-keys", &["<Control><Shift>s"]),
 ];
 
 pub struct Window {
@@ -1248,6 +1252,20 @@ impl Window {
             }
         });
         self.window.add_action(&copy);
+        for (name, transform) in [
+            ("viewer-format", Transform::Format(Indent::Spaces(2))),
+            ("viewer-minify", Transform::Minify),
+            ("viewer-sort-keys", Transform::SortKeys),
+        ] {
+            let action = gio::SimpleAction::new(name, None);
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, _| {
+                if let Some(this) = weak.upgrade() {
+                    this.viewer.reformat(transform);
+                }
+            });
+            self.window.add_action(&action);
+        }
     }
 
     #[cfg(any(debug_assertions, feature = "devtools"))]

@@ -6,6 +6,7 @@ mod file;
 mod prepare;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 pub mod probe;
+mod reformat;
 mod status;
 mod validate;
 
@@ -18,7 +19,10 @@ use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use lljson_core::Mode;
 
+use crate::transform::Transform;
+
 use self::editor::Editor;
+use self::reformat::spawn_reformat;
 use self::status::StatusBar;
 use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_autofix, spawn_validate};
 
@@ -66,6 +70,31 @@ impl ViewerPage {
                 .action_name("win.viewer-copy-all")
                 .build(),
         );
+        for (label, tooltip, action) in [
+            (
+                "Format",
+                "Format with 2 spaces (Ctrl+Shift+F)",
+                "win.viewer-format",
+            ),
+            (
+                "Minify",
+                "Remove all whitespace (Ctrl+Shift+M)",
+                "win.viewer-minify",
+            ),
+            (
+                "Sort keys",
+                "Sort the keys of every object (Ctrl+Shift+S)",
+                "win.viewer-sort-keys",
+            ),
+        ] {
+            bar.append(
+                &gtk::Button::builder()
+                    .label(label)
+                    .tooltip_text(tooltip)
+                    .action_name(action)
+                    .build(),
+            );
+        }
         let tolerant = gtk::ToggleButton::builder()
             .label("Tolerant")
             .tooltip_text("Accept comments and trailing commas")
@@ -195,6 +224,41 @@ impl ViewerPage {
                 && let Some(this) = weak.upgrade()
             {
                 this.schedule_validation();
+            }
+        });
+    }
+
+    /// Applies `transform` to the text on a background thread. Invalid text is reported in a
+    /// toast and left alone; so is a result for text that was edited in the meantime.
+    pub fn reformat(self: &Rc<Self>, transform: Transform) {
+        if !self.editor.view.is_editable() {
+            return;
+        }
+        let text = self.editor.text();
+        if text.trim().is_empty() {
+            self.toast("Nothing to format");
+            return;
+        }
+        let id = self.validating.current();
+        let receiver = spawn_reformat(text.clone(), transform, self.mode());
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let Ok(result) = receiver.recv().await else {
+                return;
+            };
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if !this.validating.is_current(id) {
+                return;
+            }
+            match result {
+                Ok(new) if new == text => this.toast("Already in that form"),
+                Ok(new) => {
+                    this.replace_text(new);
+                    this.toast(transform.done_message());
+                }
+                Err(err) => this.toast(&format!("Cannot reformat invalid JSON: {err}")),
             }
         });
     }

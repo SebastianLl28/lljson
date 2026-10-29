@@ -102,7 +102,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 
 ## Phase 13 — Viewer tab: formatting
 - [x] Auto-format on paste when the content is valid JSON.
-- [ ] Format, minify and sort-keys buttons and shortcuts (background thread for large input).
+- [x] Format, minify and sort-keys buttons and shortcuts (background thread for large input).
 
 ## Phase 14 — Viewer tab: tree viewer
 - [ ] Virtualized flat-row model from the parsed document.
