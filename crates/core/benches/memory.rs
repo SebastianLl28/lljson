@@ -3,11 +3,11 @@
 //! criterion solo mide tiempo, así que este benchmark (sin harness) mide el RSS del proceso
 //! leyendo `/proc/self/status` (solo Linux) en cada etapa: abrir los archivos con `memmap2`,
 //! parsear y hacer el diff. Muestra también el tamaño teórico de cada estructura.
-//! Ejecutar con `cargo bench -p jsonlens-core --bench memory`.
+//! Ejecutar con `cargo bench -p lljson-core --bench memory`.
 
 use std::path::{Path, PathBuf};
 
-use jsonlens_core::{
+use lljson_core::{
     Changes, DiffOptions, Document, GenerateOptions, Node, ParseOptions, Source, diff, generate,
     parse,
 };
@@ -51,7 +51,7 @@ fn main() {
     if std::env::args().any(|arg| arg == "--test") {
         return;
     }
-    let dir = std::env::temp_dir().join(format!("jsonlens-memory-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("lljson-memory-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("crear directorio temporal");
     let left_path = write_document(&dir, "a.json", Changes::default());
     let right_path = write_document(

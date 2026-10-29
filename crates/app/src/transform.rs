@@ -1,7 +1,7 @@
 //! Transformaciones de texto de un documento: formatear, minificar y ordenar claves.
 //! Son funciones puras sobre `core`; la ventana las ejecuta en un hilo de fondo.
 
-use jsonlens_core::{Document, FormatOptions, Indent, format, minify};
+use lljson_core::{Document, FormatOptions, Indent, format, minify};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transform {
@@ -59,7 +59,7 @@ impl Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonlens_core::{ParseOptions, parse};
+    use lljson_core::{ParseOptions, parse};
 
     fn doc(text: &str) -> Document {
         parse(text, &ParseOptions::default())

@@ -1,7 +1,7 @@
 //! Tests de integración del parser: comparación con serde_json como referencia,
 //! invariantes del arena y casos extremos.
 
-use jsonlens_core::{Document, ErrorKind, Kind, Mode, NodeId, ParseOptions, Parsed, Source, parse};
+use lljson_core::{Document, ErrorKind, Kind, Mode, NodeId, ParseOptions, Parsed, Source, parse};
 use serde_json::Value;
 
 fn strict() -> ParseOptions {
@@ -266,7 +266,7 @@ fn parses_large_file_through_mmap() {
     }
     text.push(']');
     assert!(text.len() > 1024 * 1024, "debe superar el umbral de mmap");
-    let path = std::env::temp_dir().join(format!("jsonlens-mmap-{}.json", std::process::id()));
+    let path = std::env::temp_dir().join(format!("lljson-mmap-{}.json", std::process::id()));
     std::fs::write(&path, &text).expect("escribir archivo temporal");
     let source = Source::from_file(&path).expect("abrir archivo");
     assert!(matches!(source, Source::Mapped(_)));

@@ -1,12 +1,12 @@
 [package]
-name = "jsonlens-cli"
-description = "Herramienta de terminal de jsonlens"
+name = "lljson-cli"
+description = "Herramienta de terminal de lljson"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-jsonlens-core.workspace = true
+lljson-core.workspace = true
 anyhow.workspace = true
 clap.workspace = true

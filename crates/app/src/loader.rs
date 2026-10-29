@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use jsonlens_core::{Document, Mode, ParseError, ParseOptions, Source, parse};
+use lljson_core::{Document, Mode, ParseError, ParseOptions, Source, parse};
 
 /// Origen de un documento.
 #[derive(Debug)]
@@ -127,7 +127,7 @@ pub fn spawn_load(input: Input) -> async_channel::Receiver<LoadResult> {
     let name = input.name();
     let worker = sender.clone();
     let spawned = std::thread::Builder::new()
-        .name("jsonlens-carga".to_owned())
+        .name("lljson-carga".to_owned())
         .spawn(move || {
             // Si el receptor ya no existe (panel cerrado), el resultado se descarta.
             let _ = worker.send_blocking(load(input));
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn loads_files() {
-        let path = std::env::temp_dir().join(format!("jsonlens-app-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("lljson-app-{}.json", std::process::id()));
         std::fs::write(&path, "[true]").expect("escribir");
         let loaded = load(Input::File(path.clone())).expect("cargar");
         assert_eq!(loaded.document.node_count(), 2);

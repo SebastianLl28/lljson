@@ -1,4 +1,4 @@
-# SPEC.md — jsonlens
+# SPEC.md — lljson
 
 ## Visión
 Herramienta nativa para Linux que une lo que hoy está separado: diff semántico de JSON
@@ -15,8 +15,8 @@ sin congelarse.
 
   | Opción | Tiempo | ¿Arena? | ¿Tolerante? |
   |---|---|---|---|
-  | jsonlens estricto | ~44 ms | sí | no aplica |
-  | jsonlens tolerante | ~40 ms | sí | sí |
+  | lljson estricto | ~44 ms | sí | no aplica |
+  | lljson tolerante | ~40 ms | sí | sí |
   | serde_json → `Value` | ~182 ms | no (requiere 2.ª pasada) | no |
   | simd-json → `BorrowedValue` | ~89 ms | no (requiere 2.ª pasada) | no |
   | simd-json → tape | ~26 ms | no (requiere 2.ª pasada) | no |
@@ -32,8 +32,8 @@ sin congelarse.
 - **Benchmarks:** criterion.
 - **Workspace de Cargo con tres crates:**
   - `crates/core` → librería: parser, árbol, hash, formateador, diff. Sin dependencias de UI.
-  - `crates/cli`  → binario de terminal (`jsonlens-cli`) que usa `core` (pruebas y scripts).
-  - `crates/app`  → app GTK4 (`jsonlens`) que usa `core`.
+  - `crates/cli`  → binario de terminal (`lljson-cli`) que usa `core` (pruebas y scripts).
+  - `crates/app`  → app GTK4 (`lljson`) que usa `core`.
 
 ## Versiones de dependencias (fijadas)
 Verificadas en crates.io el **2026-10-28** (última versión estable de cada crate).
@@ -83,7 +83,7 @@ runtimes de GNOME no tan recientes.
 
 ### Entrada
 - Pegar texto en cada panel, abrir archivos, arrastrar y soltar.
-- Abrir desde terminal: `jsonlens a.json b.json` (y `-` para leer de stdin).
+- Abrir desde terminal: `lljson a.json b.json` (y `-` para leer de stdin).
 - Comparar el portapapeles contra un archivo.
 - **Modo tolerante:** acepta comas finales y comentarios (JSONC), con opción "autocorregir".
 - Errores de sintaxis claros con línea y columna.

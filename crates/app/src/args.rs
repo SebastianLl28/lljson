@@ -1,4 +1,4 @@
-//! Argumentos de terminal: `jsonlens [IZQUIERDO] [DERECHO]`, con `-` para stdin.
+//! Argumentos de terminal: `lljson [IZQUIERDO] [DERECHO]`, con `-` para stdin.
 
 use std::path::PathBuf;
 
@@ -7,7 +7,7 @@ use clap::Parser;
 use crate::loader::Input;
 
 #[derive(Debug, Parser)]
-#[command(name = "jsonlens", version, about = "Compara y formatea JSON")]
+#[command(name = "lljson", version, about = "Compara y formatea JSON")]
 pub struct Args {
     /// Documento del panel izquierdo (`-` para la entrada estándar).
     #[arg(value_name = "IZQUIERDO")]
@@ -43,7 +43,7 @@ mod tests {
     use super::*;
 
     fn inputs(args: &[&str]) -> Result<(Option<Input>, Option<Input>), String> {
-        let args = Args::try_parse_from(std::iter::once("jsonlens").chain(args.iter().copied()))
+        let args = Args::try_parse_from(std::iter::once("lljson").chain(args.iter().copied()))
             .map_err(|e| e.to_string())?;
         args.into_inputs()
     }

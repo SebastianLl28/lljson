@@ -4,14 +4,14 @@ Medido el **2026-10-28** (Fase 4).
 
 - **Máquina:** Intel Core i7-1355U (10 núcleos / 12 hilos), 38 GB de RAM, NVMe (Micron),
   CachyOS (kernel 7.3.0), Rust 1.99.1, perfil `release`.
-- **Archivo:** generado con `jsonlens-cli generate` (semilla 1): array de 83 334 registros,
+- **Archivo:** generado con `lljson-cli generate` (semilla 1): array de 83 334 registros,
   **1 000 009 nodos**, 20,7 MiB indentado con 2 espacios (13,7 MiB minificado). Incluye
   escapes, unicode, números decimales, `null` y anidamiento de 3 niveles.
   La variante "10 cambios" se genera con `--modify 10`.
 - **Cómo reproducir:**
   ```sh
-  cargo bench -p jsonlens-core                  # criterion: parse, hash, diff, format
-  cargo bench -p jsonlens-core --bench memory   # RSS con los dos documentos cargados
+  cargo bench -p lljson-core                  # criterion: parse, hash, diff, format
+  cargo bench -p lljson-core --bench memory   # RSS con los dos documentos cargados
   ```
 
 ## Resumen frente a las metas de SPEC.md
@@ -30,8 +30,8 @@ Medido el **2026-10-28** (Fase 4).
 ### Parseo — `benches/parse.rs`
 | Opción | Tiempo | Rendimiento |
 |---|---|---|
-| jsonlens estricto | 52,9 ms | 391 MiB/s |
-| jsonlens tolerante | 57,3 ms | 361 MiB/s |
+| lljson estricto | 52,9 ms | 391 MiB/s |
+| lljson tolerante | 57,3 ms | 361 MiB/s |
 | serde_json → `Value` | 199,9 ms | 103 MiB/s |
 | simd-json → `BorrowedValue` | 73,1 ms | 283 MiB/s |
 | simd-json → tape | 26,9 ms | 768 MiB/s |
@@ -99,9 +99,9 @@ misma máquina que arriba. Archivos: `generate` (semilla 1) y `generate --modify
 21,7 MB cada uno, 1 250 012 filas alineadas, altura de contenido 23,75 M px.
 
 ```sh
-jsonlens-cli generate > a.json
-jsonlens-cli generate --modify 10 --type-change 5 > b.json
-JSONLENS_TRACE=1 JSONLENS_SCROLL_TEST=10 cargo run --release -p jsonlens --features devtools -- a.json b.json
+lljson-cli generate > a.json
+lljson-cli generate --modify 10 --type-change 5 > b.json
+LLJSON_TRACE=1 LLJSON_SCROLL_TEST=10 cargo run --release -p lljson --features devtools -- a.json b.json
 ```
 
 | Métrica | Resultado (3 ejecuciones) |

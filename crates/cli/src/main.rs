@@ -1,4 +1,4 @@
-//! `jsonlens-cli`: diff semántico, formateo, minificado y generación de JSON de prueba.
+//! `lljson-cli`: diff semántico, formateo, minificado y generación de JSON de prueba.
 //! Un archivo `-` se lee de la entrada estándar.
 
 use std::io::{self, BufWriter, Read, Write};
@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use jsonlens_core::{
+use lljson_core::{
     Change, ChangeKind, Changes, DiffOptions, Document, FormatOptions, GenerateOptions, IgnoreRule,
     Indent, Mode, NodeId, ParseOptions, Source, Summary, diff, format, format_node, generate,
     parse,
@@ -18,7 +18,7 @@ const PREVIEW_CHARS: usize = 120;
 
 #[derive(Parser)]
 #[command(
-    name = "jsonlens-cli",
+    name = "lljson-cli",
     version,
     about = "Diff semántico y formateo de JSON"
 )]
@@ -127,7 +127,7 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(err) if is_broken_pipe(&err) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("jsonlens-cli: {err:#}");
+            eprintln!("lljson-cli: {err:#}");
             ExitCode::from(2)
         }
     }
@@ -324,7 +324,7 @@ fn display_name(path: &Path) -> String {
     }
 }
 
-/// `jsonlens-cli … | head` cierra la tubería antes de tiempo: no es un error.
+/// `lljson-cli … | head` cierra la tubería antes de tiempo: no es un error.
 fn is_broken_pipe(err: &anyhow::Error) -> bool {
     err.chain()
         .filter_map(|cause| cause.downcast_ref::<io::Error>())

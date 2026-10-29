@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use jsonlens_core::{Cell as RowCell, DiffOptions, Direction, Document, Rows, Splice, diff};
+use lljson_core::{Cell as RowCell, DiffOptions, Direction, Document, Rows, Splice, diff};
 
 use crate::loader::Input;
 use crate::nodecopy::{self, Copy};
@@ -118,7 +118,7 @@ impl Window {
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&paned));
 
-        let title = adw::WindowTitle::new("jsonlens", "");
+        let title = adw::WindowTitle::new("lljson", "");
         let header = adw::HeaderBar::builder().title_widget(&title).build();
         let menu = gio::Menu::new();
         menu.append(
@@ -175,7 +175,7 @@ impl Window {
 
         let window = adw::ApplicationWindow::builder()
             .application(app)
-            .title("jsonlens")
+            .title("lljson")
             .default_width(DEFAULT_WIDTH)
             .default_height(DEFAULT_HEIGHT)
             .width_request(600)
@@ -423,7 +423,7 @@ impl Window {
         let options = self.diff_options.borrow().clone();
         let (sender, receiver) = async_channel::bounded(1);
         let spawned = std::thread::Builder::new()
-            .name("jsonlens-filas".to_owned())
+            .name("lljson-filas".to_owned())
             .spawn(move || {
                 let diff = match (left.as_deref(), right.as_deref()) {
                     (Some(l), Some(r)) => Some(diff(l, r, &options)),
@@ -673,7 +673,7 @@ impl Window {
         let (sender, receiver) = async_channel::bounded(1);
         let worker = Arc::clone(&doc);
         let spawned = std::thread::Builder::new()
-            .name("jsonlens-formato".to_owned())
+            .name("lljson-formato".to_owned())
             .spawn(move || {
                 let _ = sender.send_blocking(transform.apply(&worker));
             });

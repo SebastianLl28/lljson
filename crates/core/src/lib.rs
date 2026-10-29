@@ -1,4 +1,4 @@
-//! Núcleo de jsonlens: parser, árbol en arena, hash, formateador, diff, filas de la vista
+//! Núcleo de lljson: parser, árbol en arena, hash, formateador, diff, filas de la vista
 //! y generador de pruebas.
 //! Sin dependencias de UI.
 

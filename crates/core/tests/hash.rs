@@ -1,6 +1,6 @@
 //! Tests del hash semántico por subárbol.
 
-use jsonlens_core::{Document, Mode, ParseOptions, parse};
+use lljson_core::{Document, Mode, ParseOptions, parse};
 
 fn doc(text: &str) -> Document {
     let options = ParseOptions {

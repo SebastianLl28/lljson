@@ -1,23 +1,23 @@
 //! Herramientas de desarrollo: activas en builds de debug o con la feature `devtools`
-//! (`cargo run --release -p jsonlens --features devtools`). Se controlan con variables
+//! (`cargo run --release -p lljson --features devtools`). Se controlan con variables
 //! de entorno:
 //!
-//! - `JSONLENS_TRACE=1`: tiempos desde el arranque del proceso (primer frame, documentos
+//! - `LLJSON_TRACE=1`: tiempos desde el arranque del proceso (primer frame, documentos
 //!   cargados, filas listas).
-//! - `JSONLENS_SCREENSHOT=captura.png`: renderiza la ventana a PNG y cierra la app.
-//!   `JSONLENS_SCREENSHOT_DELAY_MS` fija la espera (1500 ms por defecto).
-//! - `JSONLENS_TOGGLE=1,4`: expande o colapsa esas filas 500 ms antes de la captura.
-//! - `JSONLENS_GOTO=n,n,p`: activa «diferencia siguiente» (`n`) o «anterior» (`p`) en orden,
+//! - `LLJSON_SCREENSHOT=captura.png`: renderiza la ventana a PNG y cierra la app.
+//!   `LLJSON_SCREENSHOT_DELAY_MS` fija la espera (1500 ms por defecto).
+//! - `LLJSON_TOGGLE=1,4`: expande o colapsa esas filas 500 ms antes de la captura.
+//! - `LLJSON_GOTO=n,n,p`: activa «diferencia siguiente» (`n`) o «anterior» (`p`) en orden,
 //!   400 ms antes de la captura.
-//! - `JSONLENS_ACTIONS=win.hide-equal,…`: activa esas acciones de la ventana 800 ms antes
+//! - `LLJSON_ACTIONS=win.hide-equal,…`: activa esas acciones de la ventana 800 ms antes
 //!   de la captura (`accion::parametro@ms`: parámetro y retardo opcionales).
-//!   `JSONLENS_PRINT_CLIPBOARD=1` escribe el portapapeles justo antes de la captura.
-//! - `JSONLENS_ARRAY_KEY=id` y `JSONLENS_IGNORE=regla;regla`: opciones de comparación.
-//! - `JSONLENS_COPY=lado:fila:path|value`: copia la ruta o el valor y escribe el
-//!   portapapeles. `JSONLENS_NODE_MENU=lado:fila`: abre el menú contextual de una fila.
-//! - `JSONLENS_CLIPBOARD_FILE=a.json:b.json`: compara `a.json` con el portapapeles (`b.json`).
-//! - `JSONLENS_SCROLL=px`: desplaza el panel izquierdo 300 ms antes de la captura.
-//! - `JSONLENS_SCROLL_TEST=segundos`: cuando las filas están listas, hace scroll continuo
+//!   `LLJSON_PRINT_CLIPBOARD=1` escribe el portapapeles justo antes de la captura.
+//! - `LLJSON_ARRAY_KEY=id` y `LLJSON_IGNORE=regla;regla`: opciones de comparación.
+//! - `LLJSON_COPY=lado:fila:path|value`: copia la ruta o el valor y escribe el
+//!   portapapeles. `LLJSON_NODE_MENU=lado:fila`: abre el menú contextual de una fila.
+//! - `LLJSON_CLIPBOARD_FILE=a.json:b.json`: compara `a.json` con el portapapeles (`b.json`).
+//! - `LLJSON_SCROLL=px`: desplaza el panel izquierdo 300 ms antes de la captura.
+//! - `LLJSON_SCROLL_TEST=segundos`: cuando las filas están listas, hace scroll continuo
 //!   la mitad del tiempo y saltos aleatorios la otra mitad, mide la duración de cada
 //!   frame y la memoria, y cierra la app.
 
@@ -47,9 +47,9 @@ pub fn mark_start() {
     let _ = START.set(Instant::now());
 }
 
-/// Escribe un evento con el tiempo transcurrido desde el arranque si `JSONLENS_TRACE=1`.
+/// Escribe un evento con el tiempo transcurrido desde el arranque si `LLJSON_TRACE=1`.
 pub fn trace(event: &str) {
-    if std::env::var_os("JSONLENS_TRACE").is_some() {
+    if std::env::var_os("LLJSON_TRACE").is_some() {
         let ms = START
             .get()
             .map_or(0.0, |s| s.elapsed().as_secs_f64() * 1000.0);
@@ -71,7 +71,7 @@ pub fn install(app_window: &Rc<Window>) {
         trace("primer frame");
         glib::ControlFlow::Break
     });
-    if let Some(seconds) = std::env::var("JSONLENS_SCROLL_TEST")
+    if let Some(seconds) = std::env::var("LLJSON_SCROLL_TEST")
         .ok()
         .and_then(|s| s.parse::<f64>().ok())
     {
@@ -84,17 +84,17 @@ pub fn install(app_window: &Rc<Window>) {
             })));
         });
     }
-    let array_key = std::env::var("JSONLENS_ARRAY_KEY").unwrap_or_default();
-    let ignore = std::env::var("JSONLENS_IGNORE").unwrap_or_default();
+    let array_key = std::env::var("LLJSON_ARRAY_KEY").unwrap_or_default();
+    let ignore = std::env::var("LLJSON_IGNORE").unwrap_or_default();
     if !array_key.is_empty() || !ignore.is_empty() {
         app_window.set_options_text(crate::options::OptionsText {
             array_key,
             ignore: ignore.replace(';', "\n"),
         });
     }
-    // `JSONLENS_CLIPBOARD_FILE=a.json:b.json`: copia `b.json` al portapapeles y lo compara
+    // `LLJSON_CLIPBOARD_FILE=a.json:b.json`: copia `b.json` al portapapeles y lo compara
     // con `a.json` como lo haría «comparar portapapeles con archivo».
-    if let Ok(spec) = std::env::var("JSONLENS_CLIPBOARD_FILE")
+    if let Ok(spec) = std::env::var("LLJSON_CLIPBOARD_FILE")
         && let Some((file, clip)) = spec.split_once(':')
     {
         let text = std::fs::read_to_string(clip).unwrap_or_default();
@@ -106,14 +106,14 @@ pub fn install(app_window: &Rc<Window>) {
 
 fn schedule_screenshot(app_window: &Rc<Window>) {
     let window = &app_window.window;
-    let Some(path) = std::env::var_os("JSONLENS_SCREENSHOT") else {
+    let Some(path) = std::env::var_os("LLJSON_SCREENSHOT") else {
         return;
     };
-    let delay: u64 = std::env::var("JSONLENS_SCREENSHOT_DELAY_MS")
+    let delay: u64 = std::env::var("LLJSON_SCREENSHOT_DELAY_MS")
         .ok()
         .and_then(|ms| ms.parse().ok())
         .unwrap_or(1500);
-    if let Ok(list) = std::env::var("JSONLENS_TOGGLE") {
+    if let Ok(list) = std::env::var("LLJSON_TOGGLE") {
         let positions: Vec<u32> = list
             .split(',')
             .filter_map(|p| p.trim().parse().ok())
@@ -132,7 +132,7 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
             },
         );
     }
-    if let Ok(list) = std::env::var("JSONLENS_GOTO") {
+    if let Ok(list) = std::env::var("LLJSON_GOTO") {
         let steps: Vec<String> = list
             .split(',')
             .map(|p| {
@@ -154,7 +154,7 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
             },
         );
     }
-    if let Ok(list) = std::env::var("JSONLENS_ACTIONS") {
+    if let Ok(list) = std::env::var("LLJSON_ACTIONS") {
         for entry in list.split(',') {
             // `accion[::parametro][@ms]`: `ms` retrasa esa acción desde el inicio de la prueba.
             let (entry, extra_ms) = match entry.trim().split_once('@') {
@@ -177,7 +177,7 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
             );
         }
     }
-    if std::env::var_os("JSONLENS_PRINT_CLIPBOARD").is_some() {
+    if std::env::var_os("LLJSON_PRINT_CLIPBOARD").is_some() {
         let clipboard = app_window.window.clipboard();
         glib::timeout_add_local_once(
             Duration::from_millis(delay.saturating_sub(100)),
@@ -191,7 +191,7 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
             },
         );
     }
-    if let Ok(spec) = std::env::var("JSONLENS_COPY") {
+    if let Ok(spec) = std::env::var("LLJSON_COPY") {
         let weak = Rc::downgrade(app_window);
         glib::timeout_add_local_once(
             Duration::from_millis(delay.saturating_sub(800)),
@@ -226,7 +226,7 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
             },
         );
     }
-    if let Ok(spec) = std::env::var("JSONLENS_NODE_MENU") {
+    if let Ok(spec) = std::env::var("LLJSON_NODE_MENU") {
         let weak = Rc::downgrade(app_window);
         glib::timeout_add_local_once(
             Duration::from_millis(delay.saturating_sub(800)),
@@ -253,7 +253,7 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
             },
         );
     }
-    if let Some(px) = std::env::var("JSONLENS_SCROLL")
+    if let Some(px) = std::env::var("LLJSON_SCROLL")
         .ok()
         .and_then(|px| px.parse::<f64>().ok())
     {

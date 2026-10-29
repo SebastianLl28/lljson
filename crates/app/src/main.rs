@@ -1,4 +1,4 @@
-//! jsonlens: compara y formatea JSON (GTK4 + libadwaita).
+//! lljson: compara y formatea JSON (GTK4 + libadwaita).
 
 mod args;
 #[cfg(any(debug_assertions, feature = "devtools"))]
@@ -20,7 +20,7 @@ use gtk::{gio, glib};
 
 use crate::pane::Side;
 
-const APP_ID: &str = "io.github.jsonlens.JsonLens";
+const APP_ID: &str = "io.github.lljson.Lljson";
 
 fn main() -> glib::ExitCode {
     #[cfg(any(debug_assertions, feature = "devtools"))]
@@ -33,7 +33,7 @@ fn main() -> glib::ExitCode {
             .exit(),
     };
 
-    // Cada ejecución es una instancia propia: así `jsonlens a b` siempre abre su ventana
+    // Cada ejecución es una instancia propia: así `lljson a b` siempre abre su ventana
     // y `-` lee la entrada estándar de este proceso (una instancia remota no podría).
     let app = adw::Application::builder()
         .application_id(APP_ID)

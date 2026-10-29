@@ -65,7 +65,7 @@ mod tests {
     use super::*;
 
     fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("jsonlens-{}-{name}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("lljson-{}-{name}", std::process::id()));
         std::fs::write(&path, bytes).expect("escribir archivo temporal");
         path
     }
@@ -91,6 +91,6 @@ mod tests {
 
     #[test]
     fn missing_file_is_an_error() {
-        assert!(Source::from_file(Path::new("/no/existe/jsonlens.json")).is_err());
+        assert!(Source::from_file(Path::new("/no/existe/lljson.json")).is_err());
     }
 }

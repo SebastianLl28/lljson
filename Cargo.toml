@@ -10,7 +10,7 @@ publish = false
 
 # Versiones fijadas en SPEC.md. No actualizar sin aprobación.
 [workspace.dependencies]
-jsonlens-core = { path = "crates/core" }
+lljson-core = { path = "crates/core" }
 
 # UI
 gtk = { package = "gtk4", version = "0.11.5", features = ["v4_18"] }

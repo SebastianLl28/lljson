@@ -1,5 +1,5 @@
 [package]
-name = "jsonlens"
+name = "lljson"
 description = "Compara y formatea JSON"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-jsonlens-core.workspace = true
+lljson-core.workspace = true
 gtk.workspace = true
 adw.workspace = true
 async-channel.workspace = true

@@ -6,7 +6,7 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
-use jsonlens_core::{GenerateOptions, Mode, ParseOptions, generate, parse};
+use lljson_core::{GenerateOptions, Mode, ParseOptions, generate, parse};
 
 fn bench(c: &mut Criterion) {
     let text = generate(&GenerateOptions::default()).expect("generar el documento");
@@ -18,7 +18,7 @@ fn bench(c: &mut Criterion) {
         "entrada: {} nodos, {:.1} MiB, arena: {:.1} MiB",
         nodes,
         text.len() as f64 / 1048576.0,
-        (nodes * std::mem::size_of::<jsonlens_core::Node>()) as f64 / 1048576.0
+        (nodes * std::mem::size_of::<lljson_core::Node>()) as f64 / 1048576.0
     );
 
     let mut group = c.benchmark_group("parse_1m_nodos");
@@ -26,13 +26,13 @@ fn bench(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
     group.throughput(Throughput::Bytes(text.len() as u64));
 
-    group.bench_function("jsonlens_estricto", |b| {
+    group.bench_function("lljson_estricto", |b| {
         b.iter(|| parse(black_box(text.as_str()), &ParseOptions::default()))
     });
     let tolerant = ParseOptions {
         mode: Mode::Tolerant,
     };
-    group.bench_function("jsonlens_tolerante", |b| {
+    group.bench_function("lljson_tolerante", |b| {
         b.iter(|| parse(black_box(text.as_str()), &tolerant))
     });
     group.bench_function("serde_json_value", |b| {

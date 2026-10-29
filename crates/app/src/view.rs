@@ -9,7 +9,7 @@ use std::sync::Arc;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
-use jsonlens_core::{Cell, DiffResult, DiffStatus, Document, Rows, TokenKind, cell_text};
+use lljson_core::{Cell, DiffResult, DiffStatus, Document, Rows, TokenKind, cell_text};
 
 use crate::pane::Side;
 
@@ -152,7 +152,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for RowsModel {
-        const NAME: &'static str = "JsonlensRowsModel";
+        const NAME: &'static str = "LljsonRowsModel";
         type Type = super::RowsModel;
         type Interfaces = (gio::ListModel,);
     }

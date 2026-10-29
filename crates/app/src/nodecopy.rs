@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use jsonlens_core::{Document, FormatOptions, Kind, NodeId, format_node};
+use lljson_core::{Document, FormatOptions, Kind, NodeId, format_node};
 
 /// Valor de un nodo como texto para pegar en otro sitio: los strings sin comillas y con
 /// los escapes resueltos; los escalares tal como están en el original; los contenedores
@@ -76,7 +76,7 @@ pub fn copy_in_background(
 ) {
     let (sender, receiver) = async_channel::bounded(1);
     let spawned = std::thread::Builder::new()
-        .name("jsonlens-copiar".to_owned())
+        .name("lljson-copiar".to_owned())
         .spawn(move || {
             let _ = sender.send_blocking(produce());
         });
@@ -153,7 +153,7 @@ fn preview(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonlens_core::{ParseOptions, parse};
+    use lljson_core::{ParseOptions, parse};
 
     fn doc(text: &str) -> Document {
         parse(text, &ParseOptions::default())

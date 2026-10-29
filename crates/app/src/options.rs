@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use jsonlens_core::{DiffOptions, IgnoreRule};
+use lljson_core::{DiffOptions, IgnoreRule};
 
 /// Lo que el usuario escribió en el diálogo (se conserva para volver a mostrarlo tal cual).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-# CLAUDE.md — Reglas de trabajo para jsonlens
+# CLAUDE.md — Reglas de trabajo para lljson
 
 Este archivo define cómo se trabaja en este repositorio. Es obligatorio en cada sesión.
 

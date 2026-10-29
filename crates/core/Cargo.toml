@@ -1,6 +1,6 @@
 [package]
-name = "jsonlens-core"
-description = "Parser, árbol, hash, formateador y diff de JSON para jsonlens"
+name = "lljson-core"
+description = "Parser, árbol, hash, formateador y diff de JSON para lljson"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use jsonlens_core::{
+use lljson_core::{
     Changes, DiffOptions, Direction, Document, GenerateOptions, ParseOptions, Rows, diff, generate,
     parse,
 };

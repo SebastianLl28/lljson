@@ -1,6 +1,6 @@
 //! Tests de integración del motor de diff.
 
-use jsonlens_core::{
+use lljson_core::{
     ChangeKind, DiffOptions, DiffResult, DiffStatus, Document, IgnoreRule, Mode, NodeId,
     ParseOptions, diff, parse,
 };

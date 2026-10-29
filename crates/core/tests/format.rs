@@ -1,7 +1,7 @@
 //! Tests de integración del formateador: idempotencia, equivalencia semántica y
 //! coherencia con el hash.
 
-use jsonlens_core::{Document, FormatOptions, Indent, Mode, ParseOptions, format, minify, parse};
+use lljson_core::{Document, FormatOptions, Indent, Mode, ParseOptions, format, minify, parse};
 use serde_json::Value;
 
 const CORPUS: &[&str] = &[

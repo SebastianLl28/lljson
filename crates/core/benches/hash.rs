@@ -11,7 +11,7 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use jsonlens_core::{Document, GenerateOptions, Kind, NodeId, ParseOptions, generate, parse};
+use lljson_core::{Document, GenerateOptions, Kind, NodeId, ParseOptions, generate, parse};
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 const TAG_NULL: u64 = 1;

@@ -1,4 +1,4 @@
-# TASKS.md — Plan de trabajo de jsonlens
+# TASKS.md — Plan de trabajo de lljson
 
 Marca cada tarea con `[x]` al completarla (build, test y clippy en verde + commit).
 No se avanza de fase sin confirmación.
@@ -35,7 +35,7 @@ No se avanza de fase sin confirmación.
 - [x] Tests.
 
 ## Fase 4 — CLI y benchmarks
-- [x] CLI: `jsonlens-cli diff a.json b.json`, `format`, `minify`, soporte de stdin (`-`).
+- [x] CLI: `lljson-cli diff a.json b.json`, `format`, `minify`, soporte de stdin (`-`).
 - [x] Generador de JSON de prueba (1 millón de nodos, con variantes con pocos cambios).
 - [x] Benchmarks con criterion (parseo, hash, diff, formateo, memoria).
 - [x] Reportar resultados contra las metas de rendimiento.
@@ -43,7 +43,7 @@ No se avanza de fase sin confirmación.
 ## Fase 5 — App: estructura
 - [x] Ventana libadwaita con dos paneles lado a lado.
 - [x] Abrir archivos, pegar, arrastrar y soltar.
-- [x] Argumentos de terminal (`jsonlens a.json b.json`, `-` para stdin).
+- [x] Argumentos de terminal (`lljson a.json b.json`, `-` para stdin).
 - [x] Parseo en hilo de fondo con indicador de progreso (> ~150 ms).
 
 ## Fase 6 — App: vista virtualizada

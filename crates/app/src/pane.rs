@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::{gio, glib};
-use jsonlens_core::Document;
+use lljson_core::Document;
 
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
 use crate::view::RowsModel;

@@ -1,7 +1,7 @@
 //! Barra resumen inferior: cuántos valores se añadieron, eliminaron o modificaron.
 
 use adw::prelude::*;
-use jsonlens_core::Summary;
+use lljson_core::Summary;
 
 /// Qué sabe la barra sobre la comparación actual.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,24 +1,24 @@
-//! Tests del binario `jsonlens-cli`: argumentos, stdin, salida y códigos de salida.
+//! Tests del binario `lljson-cli`: argumentos, stdin, salida y códigos de salida.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 fn run(args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_jsonlens-cli"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lljson-cli"))
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("lanzar jsonlens-cli");
+        .expect("lanzar lljson-cli");
     child
         .stdin
         .take()
         .expect("stdin")
         .write_all(stdin.as_bytes())
         .expect("escribir stdin");
-    child.wait_with_output().expect("esperar a jsonlens-cli")
+    child.wait_with_output().expect("esperar a lljson-cli")
 }
 
 fn stdout(output: &Output) -> String {
@@ -31,7 +31,7 @@ fn stderr(output: &Output) -> String {
 
 /// Archivo temporal propio de cada test (los tests corren en paralelo).
 fn temp_file(name: &str, text: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!("jsonlens-cli-{}-{name}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("lljson-cli-{}-{name}", std::process::id()));
     std::fs::write(&path, text).expect("escribir archivo temporal");
     path
 }
