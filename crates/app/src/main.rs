@@ -20,7 +20,7 @@ use gtk::{gio, glib};
 
 use crate::pane::Side;
 
-const APP_ID: &str = "io.github.lljson.Lljson";
+const APP_ID: &str = "io.github.sebastianll28.Lljson";
 
 fn main() -> glib::ExitCode {
     #[cfg(any(debug_assertions, feature = "devtools"))]

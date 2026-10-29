@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.sebastianll28.Lljson</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>lljson</name>
+  <summary>Compare and format JSON side by side</summary>
+  <developer id="io.github.sebastianll28">
+    <name>SebastianLl28</name>
+  </developer>
+
+  <description>
+    <p>
+      lljson is a native JSON tool that combines a semantic diff, a side-by-side visual
+      comparison and formatting utilities. It works offline, starts instantly and stays
+      smooth with files of a million nodes.
+    </p>
+    <ul>
+      <li>Semantic diff: ignores key order and whitespace, and flags type changes such as "1" versus 1</li>
+      <li>Side-by-side view with synchronized scrolling, aligned rows and highlighted values</li>
+      <li>Arrays compared by index or by a key such as id, and configurable ignored paths</li>
+      <li>Jump between differences with keyboard shortcuts and collapse equal sections</li>
+      <li>Tolerant mode for trailing commas and comments, with clear line and column errors</li>
+      <li>Format, minify and sort keys, and copy the path or value of any node</li>
+      <li>Follows the light and dark system theme</li>
+    </ul>
+  </description>
+
+  <url type="homepage">https://github.com/SebastianLl28/lljson</url>
+  <url type="bugtracker">https://github.com/SebastianLl28/lljson/issues</url>
+  <launchable type="desktop-id">io.github.sebastianll28.Lljson.desktop</launchable>
+  <provides>
+    <binary>lljson</binary>
+  </provides>
+  <categories>
+    <category>Development</category>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>json</keyword>
+    <keyword>diff</keyword>
+    <keyword>compare</keyword>
+    <keyword>format</keyword>
+  </keywords>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-28">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

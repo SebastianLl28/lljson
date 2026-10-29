@@ -67,7 +67,7 @@ No se avanza de fase sin confirmación.
 - [x] Tema claro/oscuro del sistema.
 
 ## Fase 9 — Empaquetado
-- [ ] Archivo `.desktop`, ícono, metainfo AppStream.
+- [x] Archivo `.desktop`, ícono, metainfo AppStream.
 - [ ] Manifiesto Flatpak y build local de prueba.
 - [ ] README con capturas e instrucciones.
 

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=lljson
+GenericName=JSON Diff
+GenericName[es]=Comparador de JSON
+Comment=Compare and format JSON side by side
+Comment[es]=Compara y formatea JSON lado a lado
+Exec=lljson %F
+Icon=io.github.sebastianll28.Lljson
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.sebastianll28.Lljson
+Categories=Development;GTK;
+MimeType=application/json;
+Keywords=json;diff;compare;format;minify;
+Keywords[es]=json;diff;comparar;formatear;minificar;
