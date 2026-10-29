@@ -232,3 +232,18 @@ Findings along the way:
   and ~715 ms per keystroke. That case is what option B (line-length threshold) would cover.
 - Replacing the content of an already-loaded large buffer still clears it in one call;
   not measured separately.
+
+### After line numbers and syntax colors (Phase 16)
+
+Same machine and method, 1M nodes indented (20.3 MiB), `release` + `devtools`, 2026-10-28.
+Line numbers are labels for the visible lines only; colors are `GtkTextTag`s applied to the
+visible lines plus a margin (lines over 4 KiB are not colored).
+
+| Opening | Worst frame | Keystroke (median) | Scroll | RSS |
+|---|---|---|---|---|
+| 486 ms | 33 ms | 19–34 ms | 59.3 fps, p99 16.7 ms | 497 MiB |
+
+RSS rose from ~296 MiB (Phase 11) to ~497 MiB, mostly the tags of the colored lines.
+Two traps found on the way, both runaway loops (100% CPU, GBs of RSS): sizing the gutter by
+`view.height()` (the whole text), and letting the gutter's labels affect the layout (now
+overlays) or changing a tag's color on every pass (it invalidates the whole layout).

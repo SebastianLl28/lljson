@@ -127,7 +127,12 @@ impl TreeRows {
         let mut splices = Vec::new();
         // Outermost first: an inner ancestor only has a row once the outer ones are open.
         for ancestor in chain.into_iter().rev() {
-            if !self.collapsed.get(ancestor.index()).copied().unwrap_or(false) {
+            if !self
+                .collapsed
+                .get(ancestor.index())
+                .copied()
+                .unwrap_or(false)
+            {
                 continue;
             }
             let at = self.position_of(ancestor)?;

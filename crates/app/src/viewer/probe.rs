@@ -145,7 +145,7 @@ pub fn run(page: &Rc<ViewerPage>, window: &adw::ApplicationWindow, path: PathBuf
             );
         }
 
-        let scrolled = &page.editor.root;
+        let scrolled = &page.editor.scrolled;
         let (vertical, horizontal) = (scrolled.vadjustment(), scrolled.hadjustment());
         let range = |a: &gtk::Adjustment| a.upper() - a.page_size();
         let (adjustment, axis) = if range(&vertical) >= range(&horizontal) {

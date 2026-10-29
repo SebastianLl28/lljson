@@ -51,3 +51,6 @@
   padding: 6px;
   box-shadow: 0 2px 12px alpha(black, 0.35), 0 0 0 1px alpha(currentColor, 0.15);
 }
+
+/* Line numbers of the Viewer editor. */
+.line-gutter { padding-top: 0; border-right: 1px solid alpha(currentColor, 0.12); }

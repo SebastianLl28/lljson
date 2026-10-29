@@ -642,6 +642,9 @@ impl Window {
             let chosen = theme::by_id(value);
             theme::apply(chosen);
             action.set_state(&chosen.id.to_variant());
+            if let Some(this) = weak.upgrade() {
+                this.viewer.refresh_colors();
+            }
             if let Err(err) = session::save_theme(chosen.id)
                 && let Some(this) = weak.upgrade()
             {

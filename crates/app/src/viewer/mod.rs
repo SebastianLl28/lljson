@@ -420,6 +420,11 @@ impl ViewerPage {
         });
     }
 
+    /// The theme changed: repaint the syntax colors.
+    pub fn refresh_colors(&self) {
+        self.editor.refresh_colors();
+    }
+
     pub fn open_search(&self) {
         self.tree.open_search();
     }

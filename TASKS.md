@@ -114,5 +114,5 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Search over keys and values.
 
 ## Phase 16 — Viewer tab: editor polish
-- [ ] Line numbers and syntax colors.
+- [x] Line numbers and syntax colors.
 - [ ] Two-way sync between tree selection and text cursor (offset↔node mapping in `core`, with tests).

@@ -97,16 +97,8 @@ impl SearchUi {
             prev,
             "Previous result (Shift+Enter)",
         ));
-        top.append(&button(
-            "go-down-symbolic",
-            next,
-            "Next result (Enter)",
-        ));
-        top.append(&button(
-            "window-close-symbolic",
-            close,
-            "Close (Esc)",
-        ));
+        top.append(&button("go-down-symbolic", next, "Next result (Enter)"));
+        top.append(&button("window-close-symbolic", close, "Close (Esc)"));
         let options = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(6)

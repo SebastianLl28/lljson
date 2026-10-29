@@ -5,8 +5,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gtk::{gdk, gio, glib};
 use gtk::prelude::*;
+use gtk::{gdk, gio, glib};
 use lljson_core::{Document, Kind, Query, TreeLabel, TreeRows, tree_text};
 
 use super::validate::Tree;
@@ -147,7 +147,8 @@ impl TreeView {
         });
         entry.add_controller(keys);
         let c = ctx.clone();
-        ctx.search.connect_options_changed(move || run_search(&c, true));
+        ctx.search
+            .connect_options_changed(move || run_search(&c, true));
         let c = ctx.clone();
         ctx.search.root.connect_reveal_child_notify(move |root| {
             if !root.reveals_child() {
@@ -247,9 +248,7 @@ impl TreeView {
 fn toggle(model: &RowsModel, data: &RefCell<TreeData>, position: usize) {
     let splice = {
         let mut data = data.borrow_mut();
-        let TreeData {
-            document, rows, ..
-        } = &mut *data;
+        let TreeData { document, rows, .. } = &mut *data;
         let Some(document) = document.as_deref() else {
             return;
         };
@@ -388,8 +387,7 @@ fn go_to_match(ctx: &Ctx, index: usize) {
             rows,
             search,
         } = &mut *data;
-        let (Some(document), Some(&node)) = (document.as_deref(), search.matches.get(index))
-        else {
+        let (Some(document), Some(&node)) = (document.as_deref(), search.matches.get(index)) else {
             return;
         };
         search.current = Some(index);
