@@ -88,7 +88,7 @@ Do not advance to the next phase without confirmation.
 Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Tab switcher (Compare / Viewer); Compare unchanged.
 - [x] Viewer editor: editable text, can be emptied and pasted into.
-- [ ] Open file, drag and drop, copy all.
+- [x] Open file, drag and drop, copy all.
 - [ ] Measure editing latency with the 1M-node file and report numbers.
 
 ## Phase 12 — Viewer tab: live validation

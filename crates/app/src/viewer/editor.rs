@@ -1,7 +1,10 @@
 //! Plain text editor of the Viewer: a `GtkTextView` that accepts anything the user types or pastes.
 
+use gtk::prelude::*;
+
 pub struct Editor {
     pub root: gtk::ScrolledWindow,
+    view: gtk::TextView,
 }
 
 impl Editor {
@@ -20,6 +23,17 @@ impl Editor {
             .hexpand(true)
             .vexpand(true)
             .build();
-        Editor { root }
+        Editor { root, view }
+    }
+
+    pub fn text(&self) -> String {
+        let buffer = self.view.buffer();
+        buffer
+            .text(&buffer.start_iter(), &buffer.end_iter(), true)
+            .into()
+    }
+
+    pub fn set_text(&self, text: &str) {
+        self.view.buffer().set_text(text);
     }
 }

@@ -43,9 +43,16 @@ pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.search-prev", &["<Control><Shift>g"]),
 ];
 
+/// Shortcuts of the Viewer, active only while its tab is visible.
+pub const VIEWER_ACCELS: &[(&str, &[&str])] = &[
+    ("win.viewer-open", &["<Control>o"]),
+    ("win.viewer-copy-all", &["<Control><Shift>c"]),
+];
+
 pub struct Window {
     pub window: adw::ApplicationWindow,
     stack: adw::ViewStack,
+    viewer: Rc<ViewerPage>,
     /// Header widgets that only make sense for the comparison.
     compare_header: Vec<gtk::Widget>,
     toasts: adw::ToastOverlay,
@@ -224,6 +231,7 @@ impl Window {
         Window {
             window,
             stack,
+            viewer,
             compare_header,
             toasts,
             summary,
@@ -262,6 +270,7 @@ impl Window {
         this.setup_compare_clipboard();
         this.setup_theme();
         this.setup_search();
+        this.setup_viewer_actions();
         this.setup_tabs();
         this.update_transform_actions();
         this.update_title();
@@ -1081,23 +1090,7 @@ impl Window {
     }
 
     fn choose_file(self: &Rc<Self>, on_file: impl FnOnce(&Rc<Window>, gio::File) + 'static) {
-        let json = gtk::FileFilter::new();
-        json.set_name(Some("JSON"));
-        json.add_mime_type("application/json");
-        json.add_suffix("json");
-        json.add_suffix("jsonc");
-        let all = gtk::FileFilter::new();
-        all.set_name(Some("All files"));
-        all.add_pattern("*");
-        let filters = gio::ListStore::new::<gtk::FileFilter>();
-        filters.append(&json);
-        filters.append(&all);
-        let dialog = gtk::FileDialog::builder()
-            .title("Open JSON")
-            .modal(true)
-            .filters(&filters)
-            .default_filter(&json)
-            .build();
+        let dialog = json_file_dialog();
 
         let window = self.window.clone();
         let weak = Rc::downgrade(self);
@@ -1238,6 +1231,31 @@ impl Window {
         self.window.set_title(Some(&title));
     }
 
+    fn setup_viewer_actions(self: &Rc<Self>) {
+        let open = gio::SimpleAction::new("viewer-open", None);
+        let weak = Rc::downgrade(self);
+        open.connect_activate(move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.viewer.open_dialog(&this.window);
+            }
+        });
+        self.window.add_action(&open);
+        let copy = gio::SimpleAction::new("viewer-copy-all", None);
+        let weak = Rc::downgrade(self);
+        copy.connect_activate(move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.viewer.copy_all();
+            }
+        });
+        self.window.add_action(&copy);
+    }
+
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn open_in_viewer(&self, path: std::path::PathBuf) {
+        self.select_tab(PAGE_VIEWER);
+        self.viewer.open_path(path);
+    }
+
     fn setup_tabs(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         self.stack.connect_visible_child_name_notify(move |_| {
@@ -1266,6 +1284,10 @@ impl Window {
                 let accels: &[&str] = if viewer { &[] } else { accels };
                 app.set_accels_for_action(action, accels);
             }
+            for (action, accels) in VIEWER_ACCELS {
+                let accels: &[&str] = if viewer { accels } else { &[] };
+                app.set_accels_for_action(action, accels);
+            }
         }
     }
 
@@ -1275,6 +1297,27 @@ impl Window {
             self.stack.set_visible_child_name(name);
         }
     }
+}
+
+/// The file chooser used to open JSON in either tab.
+pub fn json_file_dialog() -> gtk::FileDialog {
+    let json = gtk::FileFilter::new();
+    json.set_name(Some("JSON"));
+    json.add_mime_type("application/json");
+    json.add_suffix("json");
+    json.add_suffix("jsonc");
+    let all = gtk::FileFilter::new();
+    all.set_name(Some("All files"));
+    all.add_pattern("*");
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&json);
+    filters.append(&all);
+    gtk::FileDialog::builder()
+        .title("Open JSON")
+        .modal(true)
+        .filters(&filters)
+        .default_filter(&json)
+        .build()
 }
 
 /// Rows that disappear in a splice end up pointing at the toggled row.
