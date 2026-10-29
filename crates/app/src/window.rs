@@ -465,8 +465,16 @@ impl Window {
             // El préstamo termina antes de avisar a los modelos: la vista vuelve a leer
             // las filas durante `items_changed`.
             let old = this.comparison.replace(comparison);
-            for model in [&this.left_model, &this.right_model] {
+            // Quitar millones de filas con la vista conectada tarda segundos en GTK:
+            // se desconecta el modelo, se cambia el tamaño y se vuelve a conectar.
+            for (pane, model) in [
+                (&this.left, &this.left_model),
+                (&this.right, &this.right_model),
+            ] {
+                pane.list.set_model(None::<&gtk::SelectionModel>);
                 model.splice(0, model.len(), len, len);
+                pane.list
+                    .set_model(Some(&gtk::NoSelection::new(Some(model.clone()))));
             }
             this.summary.update(state);
             this.change_cursor.set(None);
