@@ -155,4 +155,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## License
 
-The AppStream metadata declares the project as MIT.
+[MIT](LICENSE) © 2026 SebastianLl28
