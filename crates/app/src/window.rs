@@ -120,6 +120,11 @@ impl Window {
             Some("Compare clipboard with file…"),
             Some("win.compare-clipboard"),
         );
+        let theme = gio::Menu::new();
+        for (label, value) in [("System", "system"), ("Light", "light"), ("Dark", "dark")] {
+            theme.append(Some(label), Some(&format!("win.color-scheme('{value}')")));
+        }
+        menu.append_submenu(Some("Theme"), &theme);
         header.pack_end(
             &gtk::MenuButton::builder()
                 .icon_name("open-menu-symbolic")
@@ -214,6 +219,7 @@ impl Window {
         this.setup_hide_equal();
         this.setup_options();
         this.setup_compare_clipboard();
+        this.setup_color_scheme();
         this.update_transform_actions();
         this.update_title();
         this.sync_scroll();
@@ -255,6 +261,27 @@ impl Window {
             this.hide_equal.set(hide);
             action.set_state(&hide.to_variant());
             this.rebuild_rows();
+        });
+        self.window.add_action(&action);
+    }
+
+    fn setup_color_scheme(self: &Rc<Self>) {
+        let action = gio::SimpleAction::new_stateful(
+            "color-scheme",
+            Some(glib::VariantTy::STRING),
+            &"system".to_variant(),
+        );
+        action.connect_activate(|action, param| {
+            let Some(value) = param.and_then(|p| p.str()) else {
+                return;
+            };
+            let scheme = match value {
+                "light" => adw::ColorScheme::ForceLight,
+                "dark" => adw::ColorScheme::ForceDark,
+                _ => adw::ColorScheme::Default,
+            };
+            adw::StyleManager::default().set_color_scheme(scheme);
+            action.set_state(&value.to_variant());
         });
         self.window.add_action(&action);
     }
