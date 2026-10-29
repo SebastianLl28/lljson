@@ -68,7 +68,7 @@ Do not advance to the next phase without confirmation.
 
 ## Phase 9 — Packaging
 - [x] `.desktop` file, icon, AppStream metainfo.
-- [ ] Flatpak manifest and local test build.
+- [x] Flatpak manifest and local test build.
 - [x] README with screenshots and instructions.
 
 ## Phase 10 — Post-MVP (in the order I choose)

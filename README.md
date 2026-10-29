@@ -74,10 +74,13 @@ are in [`data/`](data) if you want to install them system-wide.
 
 ### Flatpak
 
-A manifest is provided in [`packaging/flatpak`](packaging/flatpak). It has not been test-built
-yet, so treat it as a starting point. To try it:
+A manifest is provided in [`packaging/flatpak`](packaging/flatpak). It builds against the GNOME 49
+runtime and was test-built and run locally with `flatpak-builder`. It needs the runtime, SDK and
+Rust extension from Flathub:
 
 ```sh
+flatpak install --user flathub org.gnome.Platform//49 org.gnome.Sdk//49 \
+  org.freedesktop.Sdk.Extension.rust-stable//25.08
 ./packaging/flatpak/generate-sources.sh      # writes cargo-sources.json from Cargo.lock
 flatpak-builder --user --install --force-clean build-dir \
   packaging/flatpak/io.github.sebastianll28.Lljson.yaml
