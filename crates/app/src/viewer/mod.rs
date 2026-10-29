@@ -8,6 +8,7 @@ mod prepare;
 pub mod probe;
 mod reformat;
 mod status;
+mod tree;
 mod validate;
 
 use std::cell::{Cell, RefCell};
@@ -24,7 +25,8 @@ use crate::transform::Transform;
 use self::editor::Editor;
 use self::reformat::spawn_reformat;
 use self::status::StatusBar;
-use self::validate::{DEBOUNCE_MS, Generation, Validation, spawn_autofix, spawn_validate};
+use self::tree::TreeView;
+use self::validate::{Checked, DEBOUNCE_MS, Generation, Validation, spawn_autofix, spawn_validate};
 
 /// Whether a paste replaces the whole text: the buffer is empty or the selection spans it
 /// (offsets in characters).
@@ -36,6 +38,7 @@ pub struct ViewerPage {
     root: adw::ToastOverlay,
     editor: Editor,
     status: StatusBar,
+    tree: TreeView,
     tolerant: gtk::ToggleButton,
     auto_fix: gtk::Button,
     /// Id of the latest file read; results from older reads are discarded.
@@ -111,13 +114,25 @@ impl ViewerPage {
         content.append(&editor.root);
         let status = StatusBar::new();
         content.append(&status.root);
+        let tree = TreeView::new();
+        // Editor on the left, tree on the right; neither pane may be squeezed out.
+        let split = gtk::Paned::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .start_child(&content)
+            .end_child(&tree.root)
+            .resize_start_child(true)
+            .resize_end_child(true)
+            .shrink_start_child(false)
+            .shrink_end_child(false)
+            .build();
         let root = adw::ToastOverlay::new();
-        root.set_child(Some(&content));
+        root.set_child(Some(&split));
 
         let this = Rc::new(ViewerPage {
             root,
             editor,
             status,
+            tree,
             tolerant,
             auto_fix,
             generation: Cell::new(0),
@@ -349,12 +364,22 @@ impl ViewerPage {
             let receiver = spawn_validate(this.editor.text(), this.mode());
             let weak = Rc::downgrade(&this);
             glib::MainContext::default().spawn_local(async move {
-                let Ok(result) = receiver.recv().await else {
+                let Ok(checked) = receiver.recv().await else {
                     return;
                 };
                 if let Some(this) = weak.upgrade()
                     && this.validating.is_current(id)
                 {
+                    let Checked {
+                        validation: result,
+                        tree,
+                    } = checked;
+                    // Invalid text keeps the last valid tree while the user fixes it.
+                    match tree {
+                        Some(tree) => this.tree.show(tree),
+                        None if result == Validation::Empty => this.tree.clear(),
+                        None => {}
+                    }
                     this.status.show(&result);
                     this.auto_fix
                         .set_sensitive(matches!(result, Validation::Valid { fixes } if fixes > 0));

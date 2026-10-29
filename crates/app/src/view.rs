@@ -45,7 +45,7 @@ pub fn install_styles() {
     manager.connect_dark_notify(apply);
 }
 
-fn token_class(kind: TokenKind) -> &'static str {
+pub(crate) fn token_class(kind: TokenKind) -> &'static str {
     match kind {
         TokenKind::Punctuation => "json-punct",
         TokenKind::String => "json-string",

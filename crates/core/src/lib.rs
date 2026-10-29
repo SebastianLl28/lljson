@@ -13,6 +13,7 @@ mod path;
 mod rows;
 mod search;
 mod source;
+mod tree;
 
 pub use diff::{
     Change, ChangeKind, DiffOptions, DiffResult, DiffStatus, Summary, diff, pair_children,
@@ -31,6 +32,7 @@ pub use rows::{
 };
 pub use search::{MatchMode, Query, Scope, SearchError};
 pub use source::Source;
+pub use tree::{TreeRow, TreeRows};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

@@ -105,7 +105,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Format, minify and sort-keys buttons and shortcuts (background thread for large input).
 
 ## Phase 14 — Viewer tab: tree viewer
-- [ ] Virtualized flat-row model from the parsed document.
+- [x] Virtualized flat-row model from the parsed document.
 - [ ] Type icons, container length and array indices.
 - [ ] Expand/collapse per node, expand all, collapse all.
 

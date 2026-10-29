@@ -2,8 +2,9 @@
 //! discards stale results. Independent of GTK.
 
 use std::cell::Cell;
+use std::sync::Arc;
 
-use lljson_core::{Mode, ParseError, ParseOptions, Source, parse};
+use lljson_core::{Document, Mode, ParseError, ParseOptions, Source, TreeRows, parse};
 
 /// Quiet time after the last edit before the text is parsed.
 pub const DEBOUNCE_MS: u64 = 150;
@@ -55,27 +56,60 @@ pub fn mark_for(text: &str, offset: usize) -> Mark {
     }
 }
 
+/// What a background parse produces: the verdict and, for valid text, the tree to show.
+pub struct Checked {
+    pub validation: Validation,
+    /// `None` unless the text is valid JSON.
+    pub tree: Option<Tree>,
+}
+
+/// A parsed document and its visible rows, built off the UI thread.
+pub struct Tree {
+    pub document: Arc<Document>,
+    pub rows: TreeRows,
+}
+
 /// Parses `text` in the given mode.
-pub fn validate(text: String, mode: Mode) -> Validation {
+pub fn check(text: String, mode: Mode) -> Checked {
     if text.trim().is_empty() {
-        return Validation::Empty;
+        return Checked {
+            validation: Validation::Empty,
+            tree: None,
+        };
     }
     let options = ParseOptions { mode };
     match parse(Source::from(text.as_str()), &options) {
-        Ok(parsed) => Validation::Valid {
-            fixes: parsed.fixes.len(),
-        },
-        Err(error) => Validation::Invalid {
-            hint: error.hint(text.as_bytes()),
-            mark: mark_for(&text, error.offset),
-            error,
+        Ok(parsed) => {
+            let rows = TreeRows::new(&parsed.document);
+            Checked {
+                validation: Validation::Valid {
+                    fixes: parsed.fixes.len(),
+                },
+                tree: Some(Tree {
+                    document: Arc::new(parsed.document),
+                    rows,
+                }),
+            }
+        }
+        Err(error) => Checked {
+            validation: Validation::Invalid {
+                hint: error.hint(text.as_bytes()),
+                mark: mark_for(&text, error.offset),
+                error,
+            },
+            tree: None,
         },
     }
 }
 
+#[cfg(test)]
+pub fn validate(text: String, mode: Mode) -> Validation {
+    check(text, mode).validation
+}
+
 /// Parses on a background thread; the receiver yields exactly one result, or closes without
 /// one if the thread could not be created.
-pub fn spawn_validate(text: String, mode: Mode) -> async_channel::Receiver<Validation> {
+pub fn spawn_validate(text: String, mode: Mode) -> async_channel::Receiver<Checked> {
     let (sender, receiver) = async_channel::bounded(1);
     // A failed spawn drops the sender with the closure, which closes the channel: the
     // caller sees no result and keeps the previous status.
@@ -83,7 +117,7 @@ pub fn spawn_validate(text: String, mode: Mode) -> async_channel::Receiver<Valid
         .name("lljson-validate".to_owned())
         .spawn(move || {
             // A dropped receiver (stale request) just discards the result.
-            let _ = sender.send_blocking(validate(text, mode));
+            let _ = sender.send_blocking(check(text, mode));
         });
     receiver
 }
@@ -198,7 +232,9 @@ mod tests {
     #[test]
     fn spawn_validate_delivers_one_result() {
         let receiver = spawn_validate("[1]".to_owned(), Mode::Strict);
-        assert_eq!(receiver.recv_blocking(), Ok(Validation::Valid { fixes: 0 }));
+        let checked = receiver.recv_blocking().expect("result");
+        assert_eq!(checked.validation, Validation::Valid { fixes: 0 });
+        assert_eq!(checked.tree.map(|t| t.rows.len()), Some(2));
         assert!(receiver.recv_blocking().is_err(), "only one result");
     }
 
@@ -354,5 +390,17 @@ mod tests {
         let receiver = spawn_autofix("[1,]".to_owned());
         assert_eq!(receiver.recv_blocking(), Ok(Some("[1]".to_owned())));
         assert!(receiver.recv_blocking().is_err(), "only one result");
+    }
+
+    #[test]
+    fn only_valid_text_produces_a_tree() {
+        let rows = |text: &str| {
+            check(text.to_owned(), Mode::Strict)
+                .tree
+                .map(|tree| tree.rows.len())
+        };
+        assert_eq!(rows(r#"{"a":[1,2]}"#), Some(4));
+        assert_eq!(rows("[1,"), None);
+        assert_eq!(rows("  "), None);
     }
 }
