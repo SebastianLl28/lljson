@@ -114,6 +114,20 @@ impl Comparison {
             })
     }
 
+    /// La fila es un contenedor colapsado con diferencias dentro (que no se ven).
+    pub fn is_collapsed_with_changes(&self, position: usize) -> bool {
+        let (Some(diff), Some(row)) = (&self.diff, self.rows.get(position)) else {
+            return false;
+        };
+        self.is_expanded(position) == Some(false)
+            && (row
+                .left()
+                .is_some_and(|c| diff.left_status(c.node) == DiffStatus::Contains)
+                || row
+                    .right()
+                    .is_some_and(|c| diff.right_status(c.node) == DiffStatus::Contains))
+    }
+
     /// `Some(expandido)` si la fila muestra un contenedor que se puede expandir o colapsar.
     fn is_expanded(&self, position: usize) -> Option<bool> {
         self.rows
@@ -185,7 +199,7 @@ impl Default for RowsModel {
     }
 }
 
-fn to_u32(n: usize) -> u32 {
+pub fn to_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 

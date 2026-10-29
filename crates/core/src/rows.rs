@@ -10,8 +10,8 @@
 
 use std::borrow::Cow;
 
-use crate::diff::{DiffOptions, pair_children};
-use crate::document::{Document, Kind, NodeId};
+use crate::diff::{DiffOptions, DiffResult, DiffStatus, pair_children};
+use crate::document::{Document, Kind, Node, NodeId};
 
 /// Caracteres máximos del valor de un string en una fila.
 pub const MAX_VALUE_CHARS: usize = 1000;
@@ -81,6 +81,29 @@ impl Row {
     fn is_open(&self) -> bool {
         self.left_kind == RowKind::Open || self.right_kind == RowKind::Open
     }
+}
+
+/// Sentido de la búsqueda de diferencias.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Forward,
+    Backward,
+}
+
+/// Fila de una diferencia encontrada por [`Rows::find_change`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChangeStop {
+    pub position: usize,
+    /// La búsqueda dio la vuelta al principio o al final de la lista.
+    pub wrapped: bool,
+}
+
+/// El estado marca el subárbol completo (sus descendientes tienen el mismo estado).
+fn fills_subtree(status: DiffStatus) -> bool {
+    matches!(
+        status,
+        DiffStatus::Added | DiffStatus::Removed | DiffStatus::TypeChanged
+    )
 }
 
 /// Cambio en la lista tras expandir o colapsar: en `position` se quitaron `removed` filas
@@ -214,6 +237,45 @@ impl Rows {
         }
     }
 
+    /// Busca la diferencia más cercana a `from` (`None`: desde el principio al avanzar o
+    /// desde el final al retroceder) y da la vuelta si no hay más en esa dirección.
+    ///
+    /// Un subárbol añadido, eliminado o con cambio de tipo cuenta como una sola parada
+    /// (su primera fila), y un contenedor colapsado con cambios dentro también.
+    /// Devuelve `None` si no hay ninguna diferencia visible. Recorre la lista en tiempo
+    /// lineal; `diff` debe ser el resultado de comparar `left` con `right`.
+    pub fn find_change(
+        &self,
+        from: Option<usize>,
+        direction: Direction,
+        left: Option<&Document>,
+        right: Option<&Document>,
+        diff: &DiffResult,
+    ) -> Option<ChangeStop> {
+        let len = self.rows.len();
+        if len == 0 {
+            return None;
+        }
+        // Posición virtual de partida y paso; fuera de `0..len` significa que dio la vuelta.
+        let (start, step): (i64, i64) = match (direction, from) {
+            (Direction::Forward, Some(p)) => (p as i64 + 1, 1),
+            (Direction::Forward, None) => (0, 1),
+            (Direction::Backward, Some(p)) => (p as i64 - 1, -1),
+            (Direction::Backward, None) => (len as i64 - 1, -1),
+        };
+        (0..len as i64).find_map(|k| {
+            let virtual_index = start + k * step;
+            let position = virtual_index.rem_euclid(len as i64) as usize;
+            let row = self.rows.get(position)?;
+            let is_change = is_change_start(row.left(), left, |n| diff.left_status(n))
+                || is_change_start(row.right(), right, |n| diff.right_status(n));
+            is_change.then_some(ChangeStop {
+                position,
+                wrapped: !(0..len as i64).contains(&virtual_index),
+            })
+        })
+    }
+
     /// Filas del par `(l, r)` y sus descendientes según el estado de colapso actual.
     fn emit(
         &self,
@@ -267,6 +329,29 @@ impl Rows {
             }
         }
         out
+    }
+}
+
+/// La celda es el comienzo de una diferencia: un cambio que no está dentro de otro
+/// subárbol ya marcado, o un contenedor colapsado con cambios dentro.
+fn is_change_start(
+    cell: Option<Cell>,
+    doc: Option<&Document>,
+    status: impl Fn(NodeId) -> DiffStatus,
+) -> bool {
+    let Some(cell) = cell.filter(|c| c.kind != RowKind::Close) else {
+        return false;
+    };
+    match status(cell.node) {
+        DiffStatus::Contains => cell.kind == RowKind::Leaf,
+        DiffStatus::Added
+        | DiffStatus::Removed
+        | DiffStatus::Modified
+        | DiffStatus::TypeChanged => !doc
+            .and_then(|d| d.node(cell.node))
+            .and_then(Node::parent)
+            .is_some_and(|parent| fills_subtree(status(parent))),
+        DiffStatus::Equal | DiffStatus::Ignored => false,
     }
 }
 
@@ -702,5 +787,117 @@ mod tests {
         );
         assert_eq!(text.value.chars().count(), MAX_VALUE_CHARS + 2);
         assert!(text.value.ends_with('…'));
+    }
+
+    /// Posiciones de todas las paradas dando la vuelta una vez, y si alguna dio la vuelta.
+    fn stops(
+        rows: &Rows,
+        l: &Document,
+        r: &Document,
+        direction: Direction,
+    ) -> (Vec<usize>, Vec<bool>) {
+        let diff = crate::diff(l, r, &DiffOptions::default());
+        let mut from = None;
+        let (mut positions, mut wraps) = (Vec::new(), Vec::new());
+        for _ in 0..4 {
+            let Some(stop) = rows.find_change(from, direction, Some(l), Some(r), &diff) else {
+                break;
+            };
+            positions.push(stop.position);
+            wraps.push(stop.wrapped);
+            from = Some(stop.position);
+        }
+        (positions, wraps)
+    }
+
+    #[test]
+    fn find_change_visits_each_change_once_and_wraps() {
+        let l = doc(r#"{"a":1,"b":2,"c":3}"#);
+        let r = doc(r#"{"a":10,"b":2,"c":30,"d":{"k":[1,2]}}"#);
+        let rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
+        // Filas: 0 `{`, 1 a, 2 b, 3 c, 4 `d: {` (subárbol añadido: una sola parada), …
+        let (forward, wraps) = stops(&rows, &l, &r, Direction::Forward);
+        assert_eq!(forward, [1, 3, 4, 1]);
+        assert_eq!(wraps, [false, false, false, true]);
+        let (backward, wraps) = stops(&rows, &l, &r, Direction::Backward);
+        assert_eq!(backward, [4, 3, 1, 4]);
+        assert_eq!(wraps, [false, false, false, true]);
+    }
+
+    #[test]
+    fn find_change_without_differences_or_rows() {
+        let l = doc(r#"{"a":[1,2]}"#);
+        let rows = Rows::new(Some(&l), Some(&l), DiffOptions::default());
+        let diff = crate::diff(&l, &l, &DiffOptions::default());
+        for direction in [Direction::Forward, Direction::Backward] {
+            assert_eq!(
+                rows.find_change(None, direction, Some(&l), Some(&l), &diff),
+                None
+            );
+        }
+        let empty = Rows::default();
+        assert_eq!(
+            empty.find_change(None, Direction::Forward, None, None, &diff),
+            None
+        );
+    }
+
+    #[test]
+    fn find_change_single_change_returns_itself_after_wrapping() {
+        let l = doc("[1,2,3]");
+        let r = doc("[1,2,4]");
+        let rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
+        let diff = crate::diff(&l, &r, &DiffOptions::default());
+        let stop = rows.find_change(Some(3), Direction::Forward, Some(&l), Some(&r), &diff);
+        assert_eq!(
+            stop,
+            Some(ChangeStop {
+                position: 3,
+                wrapped: true
+            })
+        );
+        let stop = rows.find_change(Some(0), Direction::Backward, Some(&l), Some(&r), &diff);
+        assert_eq!(
+            stop,
+            Some(ChangeStop {
+                position: 3,
+                wrapped: true
+            })
+        );
+    }
+
+    #[test]
+    fn find_change_stops_at_collapsed_containers_with_changes() {
+        let l = doc(r#"{"o":{"x":1},"p":1}"#);
+        let r = doc(r#"{"o":{"x":2},"p":1}"#);
+        let mut rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
+        assert_eq!(stops(&rows, &l, &r, Direction::Forward).0, [2; 4]);
+        rows.toggle(1, Some(&l), Some(&r));
+        assert_eq!(stops(&rows, &l, &r, Direction::Forward).0, [1; 4]);
+    }
+
+    #[test]
+    fn find_change_type_change_counts_each_side_once() {
+        let l = doc(r#"{"a":[1,2]}"#);
+        let r = doc(r#"{"a":"s"}"#);
+        let rows = Rows::new(Some(&l), Some(&r), DiffOptions::default());
+        // 0 `{`, 1 `a: [` (solo izq.), 2 `1`, 3 `2`, 4 `]`, 5 `a: "s"` (solo der.), 6 `}`
+        assert_eq!(stops(&rows, &l, &r, Direction::Forward).0, [1, 5, 1, 5]);
+    }
+
+    #[test]
+    fn find_change_ignores_ignored_paths() {
+        let l = doc(r#"{"t":1,"a":1}"#);
+        let r = doc(r#"{"t":2,"a":1}"#);
+        let options = DiffOptions {
+            ignore: vec![crate::IgnoreRule::Key("t".to_owned())],
+            ..DiffOptions::default()
+        };
+        let rows = Rows::new(Some(&l), Some(&r), options.clone());
+        let diff = crate::diff(&l, &r, &options);
+        assert_eq!(
+            rows.find_change(None, Direction::Forward, Some(&l), Some(&r), &diff),
+            None
+        );
     }
 }

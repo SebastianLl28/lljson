@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use jsonlens_core::{
-    Changes, DiffOptions, Document, GenerateOptions, ParseOptions, Rows, generate, parse,
+    Changes, DiffOptions, Direction, Document, GenerateOptions, ParseOptions, Rows, diff, generate,
+    parse,
 };
 
 fn doc(changes: Changes) -> Document {
@@ -43,6 +44,25 @@ fn bench(c: &mut Criterion) {
     });
     group.bench_function("construir_dos_documentos", |b| {
         b.iter(|| Rows::new(black_box(l), r, DiffOptions::default()))
+    });
+    // Peor caso de "siguiente diferencia": recorrer todas las filas sin encontrar ninguna.
+    let same = diff(&left, &left, &DiffOptions::default());
+    let same_rows = Rows::new(Some(&left), Some(&left), DiffOptions::default());
+    group.bench_function("buscar_diferencia_recorrido_completo", |b| {
+        b.iter(|| {
+            same_rows.find_change(
+                black_box(Some(0)),
+                Direction::Forward,
+                Some(&left),
+                Some(&left),
+                &same,
+            )
+        })
+    });
+    // Caso real: 10 cambios repartidos; de una parada a la siguiente.
+    let changed = diff(&left, &right, &DiffOptions::default());
+    group.bench_function("buscar_diferencia_siguiente", |b| {
+        b.iter(|| rows.find_change(black_box(Some(0)), Direction::Forward, l, r, &changed))
     });
     group.bench_function("colapsar_raiz", |b| {
         b.iter_batched(

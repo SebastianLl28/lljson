@@ -56,7 +56,7 @@ No se avanza de fase sin confirmación.
 ## Fase 7 — App: diff visual
 - [x] Colores del diff por valor.
 - [x] Barra resumen.
-- [ ] Navegación siguiente/anterior diferencia con atajos.
+- [x] Navegación siguiente/anterior diferencia con atajos.
 - [ ] Colapsar secciones iguales.
 
 ## Fase 8 — App: utilidades del MVP

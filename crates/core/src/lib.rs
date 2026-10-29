@@ -25,7 +25,10 @@ pub use generate::{
 };
 pub use parser::{Fix, FixKind, Mode, ParseOptions, Parsed, parse};
 pub use path::{IgnoreRule, PatternError, PatternSegment};
-pub use rows::{Cell, CellText, MAX_VALUE_CHARS, Row, RowKind, Rows, Splice, TokenKind, cell_text};
+pub use rows::{
+    Cell, CellText, ChangeStop, Direction, MAX_VALUE_CHARS, Row, RowKind, Rows, Splice, TokenKind,
+    cell_text,
+};
 pub use source::Source;
 
 /// Versión de la librería.

@@ -7,6 +7,8 @@
 //! - `JSONLENS_SCREENSHOT=captura.png`: renderiza la ventana a PNG y cierra la app.
 //!   `JSONLENS_SCREENSHOT_DELAY_MS` fija la espera (1500 ms por defecto).
 //! - `JSONLENS_TOGGLE=1,4`: expande o colapsa esas filas 500 ms antes de la captura.
+//! - `JSONLENS_GOTO=n,n,p`: activa «diferencia siguiente» (`n`) o «anterior» (`p`) en orden,
+//!   400 ms antes de la captura.
 //! - `JSONLENS_SCROLL=px`: desplaza el panel izquierdo 300 ms antes de la captura.
 //! - `JSONLENS_SCROLL_TEST=segundos`: cuando las filas están listas, hace scroll continuo
 //!   la mitad del tiempo y saltos aleatorios la otra mitad, mide la duración de cada
@@ -99,6 +101,28 @@ fn schedule_screenshot(app_window: &Rc<Window>) {
                         let start = Instant::now();
                         app_window.toggle(position);
                         eprintln!("fila {position}: {:?}", start.elapsed());
+                    }
+                }
+            },
+        );
+    }
+    if let Ok(list) = std::env::var("JSONLENS_GOTO") {
+        let steps: Vec<String> = list
+            .split(',')
+            .map(|p| {
+                format!(
+                    "win.{}-change",
+                    if p.trim() == "p" { "prev" } else { "next" }
+                )
+            })
+            .collect();
+        let weak = Rc::downgrade(app_window);
+        glib::timeout_add_local_once(
+            Duration::from_millis(delay.saturating_sub(400)),
+            move || {
+                if let Some(app_window) = weak.upgrade() {
+                    for step in steps {
+                        let _ = WidgetExt::activate_action(&app_window.window, &step, None);
                     }
                 }
             },

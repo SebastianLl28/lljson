@@ -7,22 +7,24 @@ use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
-use jsonlens_core::{DiffOptions, Rows, diff};
+use jsonlens_core::{DiffOptions, Direction, Rows, Splice, diff};
 
 use crate::loader::Input;
 use crate::pane::{Pane, Side};
 use crate::summary::{State, SummaryBar};
-use crate::view::{self, Comparison, RowsModel};
+use crate::view::{self, Comparison, RowsModel, to_u32};
 
 const DEFAULT_WIDTH: i32 = 1200;
 const DEFAULT_HEIGHT: i32 = 760;
 
 /// Atajos de las acciones de la ventana.
-pub const ACCELS: &[(&str, &str)] = &[
-    ("win.open-left", "<Control>o"),
-    ("win.open-right", "<Control><Shift>o"),
-    ("win.paste-left", "<Control>v"),
-    ("win.paste-right", "<Control><Shift>v"),
+pub const ACCELS: &[(&str, &[&str])] = &[
+    ("win.open-left", &["<Control>o"]),
+    ("win.open-right", &["<Control><Shift>o"]),
+    ("win.paste-left", &["<Control>v"]),
+    ("win.paste-right", &["<Control><Shift>v"]),
+    ("win.next-change", &["F3", "<Alt>Down"]),
+    ("win.prev-change", &["<Shift>F3", "<Alt>Up"]),
 ];
 
 pub struct Window {
@@ -37,6 +39,8 @@ pub struct Window {
     right_model: RowsModel,
     /// Identifica la última construcción de filas pedida.
     rows_generation: Cell<u64>,
+    /// Fila de la última diferencia a la que se navegó (para ir a la siguiente o anterior).
+    change_cursor: Cell<Option<usize>>,
 }
 
 impl Window {
@@ -88,6 +92,26 @@ impl Window {
 
         let title = adw::WindowTitle::new("jsonlens", "");
         let header = adw::HeaderBar::builder().title_widget(&title).build();
+        for (icon, action, tooltip) in [
+            (
+                "go-up-symbolic",
+                "win.prev-change",
+                "Diferencia anterior (Mayús+F3)",
+            ),
+            (
+                "go-down-symbolic",
+                "win.next-change",
+                "Diferencia siguiente (F3)",
+            ),
+        ] {
+            header.pack_start(
+                &gtk::Button::builder()
+                    .icon_name(icon)
+                    .action_name(action)
+                    .tooltip_text(tooltip)
+                    .build(),
+            );
+        }
         let view = adw::ToolbarView::new();
         view.add_top_bar(&header);
         let summary = SummaryBar::new();
@@ -115,6 +139,7 @@ impl Window {
             left_model,
             right_model,
             rows_generation: Cell::new(0),
+            change_cursor: Cell::new(None),
         }
     }
 
@@ -132,6 +157,7 @@ impl Window {
                 }
             });
         }
+        this.setup_navigation();
         this.update_title();
         this.sync_scroll();
 
@@ -142,6 +168,105 @@ impl Window {
             keep_alive.take();
             glib::Propagation::Proceed
         });
+    }
+
+    /// Acciones de navegación entre diferencias; desactivadas hasta que haya alguna.
+    fn setup_navigation(self: &Rc<Self>) {
+        for (name, direction) in [
+            ("next-change", Direction::Forward),
+            ("prev-change", Direction::Backward),
+        ] {
+            let action = gio::SimpleAction::new(name, None);
+            action.set_enabled(false);
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, _| {
+                if let Some(this) = weak.upgrade() {
+                    this.go_to_change(direction);
+                }
+            });
+            self.window.add_action(&action);
+        }
+    }
+
+    fn set_navigation_enabled(&self, enabled: bool) {
+        for name in ["next-change", "prev-change"] {
+            if let Some(action) = self
+                .window
+                .lookup_action(name)
+                .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+            {
+                action.set_enabled(enabled);
+            }
+        }
+    }
+
+    /// Salta a la diferencia siguiente o anterior (dando la vuelta al llegar al final),
+    /// expande un contenedor colapsado que la contenga y la deja a la vista en ambos paneles.
+    fn go_to_change(&self, direction: Direction) {
+        let found = {
+            let comparison = self.comparison.borrow();
+            let Some(diff) = &comparison.diff else {
+                return;
+            };
+            comparison.rows.find_change(
+                self.change_cursor.get(),
+                direction,
+                comparison.left.as_deref(),
+                comparison.right.as_deref(),
+                diff,
+            )
+        };
+        let Some(stop) = found else {
+            self.toast("No hay diferencias");
+            return;
+        };
+        self.change_cursor.set(Some(stop.position));
+        if self
+            .comparison
+            .borrow()
+            .is_collapsed_with_changes(stop.position)
+        {
+            self.toggle(to_u32(stop.position));
+        }
+        #[cfg(any(debug_assertions, feature = "devtools"))]
+        crate::devtools::trace(&format!(
+            "diferencia en la fila {} (vuelta: {})",
+            stop.position, stop.wrapped
+        ));
+        self.scroll_to_centered(stop.position);
+        if stop.wrapped {
+            self.toast(match direction {
+                Direction::Forward => "Última diferencia: vuelve a la primera",
+                Direction::Backward => "Primera diferencia: vuelve a la última",
+            });
+        }
+    }
+
+    /// Deja la fila `position` más o menos en el centro del panel (el otro panel la sigue).
+    /// `GtkListView` solo sabe llevar una fila al borde más cercano, así que se pide ver
+    /// una fila a media página de distancia, del lado hacia el que hay que moverse.
+    /// Si la fila ya está a la vista no se mueve nada.
+    fn scroll_to_centered(&self, position: usize) {
+        let adjustment = self.left.scrolled.vadjustment();
+        let len = self.comparison.borrow().rows.len().max(1);
+        // Las filas miden lo mismo, así que la altura media da su posición.
+        let row_height = if adjustment.upper() > 0.0 {
+            adjustment.upper() / len as f64
+        } else {
+            1.0
+        };
+        let half = (adjustment.page_size() / 2.0 / row_height) as usize;
+        let top = position as f64 * row_height;
+        let anchor = if top < adjustment.value() {
+            position.saturating_sub(half)
+        } else if top + row_height > adjustment.value() + adjustment.page_size() {
+            (position + half).min(len - 1)
+        } else {
+            return;
+        };
+        self.left
+            .list
+            .scroll_to(to_u32(anchor), gtk::ListScrollFlags::NONE, None);
     }
 
     /// Sincroniza el scroll vertical de ambos paneles. Las dos listas tienen las mismas
@@ -212,6 +337,8 @@ impl Window {
                 model.splice(0, model.len(), len, len);
             }
             this.summary.update(state);
+            this.change_cursor.set(None);
+            this.set_navigation_enabled(matches!(state, State::Compared(s) if s.total() > 0));
             this.left.show_list();
             this.right.show_list();
             #[cfg(any(debug_assertions, feature = "devtools"))]
@@ -238,6 +365,8 @@ impl Window {
             (splice, rows.len())
         };
         if let Some(s) = splice {
+            self.change_cursor
+                .set(self.change_cursor.get().map(|c| shift_cursor(c, s)));
             for model in [&self.left_model, &self.right_model] {
                 model.splice(s.position, s.removed, s.added, len);
             }
@@ -392,5 +521,48 @@ impl Window {
             self.pane(Side::Right).title()
         );
         self.title.set_subtitle(&subtitle);
+    }
+}
+
+/// Nueva posición de una fila tras un expandir o colapsar: las filas que desaparecen
+/// pasan a apuntar a la fila que se expandió o colapsó.
+fn shift_cursor(cursor: usize, splice: Splice) -> usize {
+    if cursor < splice.position + splice.removed.min(1) {
+        cursor
+    } else if cursor >= splice.position + splice.removed {
+        cursor + splice.added - splice.removed
+    } else {
+        splice.position
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn splice(position: usize, removed: usize, added: usize) -> Splice {
+        Splice {
+            position,
+            removed,
+            added,
+        }
+    }
+
+    #[test]
+    fn cursor_before_the_splice_does_not_move() {
+        assert_eq!(shift_cursor(2, splice(5, 1, 10)), 2);
+        assert_eq!(shift_cursor(5, splice(5, 1, 10)), 5);
+    }
+
+    #[test]
+    fn cursor_after_the_splice_shifts_by_the_difference() {
+        assert_eq!(shift_cursor(6, splice(5, 1, 10)), 15);
+        assert_eq!(shift_cursor(20, splice(5, 10, 1)), 11);
+    }
+
+    #[test]
+    fn cursor_inside_collapsed_rows_goes_to_the_collapsed_row() {
+        assert_eq!(shift_cursor(7, splice(5, 10, 1)), 5);
+        assert_eq!(shift_cursor(14, splice(5, 10, 1)), 5);
     }
 }

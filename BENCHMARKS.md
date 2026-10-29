@@ -116,3 +116,10 @@ JSONLENS_TRACE=1 JSONLENS_SCROLL_TEST=10 cargo run --release -p jsonlens --featu
 Los frames lentos aislados (≈1 %) quedan por investigar; el p95 está en el intervalo de
 refresco del monitor. Limitación conocida: **expandir la raíz tarda ~54 ms en el hilo de la UI**
 (`benches/rows.rs`), por encima de los 16 ms de un frame.
+
+### Navegación entre diferencias — `benches/rows.rs` (Fase 7)
+| Caso | Tiempo |
+|---|---|
+| `find_change`, peor caso: recorrer las 1 250 012 filas sin hallar ninguna | 3,0 ms |
+
+Se ejecuta en el hilo de la UI (meta: < 16 ms por frame).

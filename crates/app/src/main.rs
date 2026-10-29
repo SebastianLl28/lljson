@@ -36,8 +36,8 @@ fn main() -> glib::ExitCode {
         .application_id(APP_ID)
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
-    for (action, accel) in window::ACCELS {
-        app.set_accels_for_action(action, &[accel]);
+    for (action, accels) in window::ACCELS {
+        app.set_accels_for_action(action, accels);
     }
     let inputs = Cell::new(Some((left, right)));
     app.connect_activate(move |app| {
