@@ -2,7 +2,7 @@
 //! window, the JSON view and the syntax colors. A palette is turned into CSS that overrides
 //! libadwaita's named colors, so every widget follows it.
 
-use std::cell::OnceCell;
+use std::cell::RefCell;
 
 pub const DEFAULT_ID: &str = "system";
 
@@ -25,7 +25,9 @@ pub struct Palette {
 pub struct Theme {
     pub id: &'static str,
     pub label: &'static str,
-    /// `None` for the themes that follow or force the stock light/dark look.
+    /// Listed apart from the named palettes in the menu.
+    pub stock: bool,
+    /// `None` only for "Follow system", which leaves colors to the system and the shell.
     pub palette: Option<Palette>,
 }
 
@@ -33,21 +35,49 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "system",
         label: "Follow system",
+        stock: true,
         palette: None,
     },
     Theme {
         id: "light",
         label: "Light",
-        palette: None,
+        stock: true,
+        palette: Some(Palette {
+            dark: false,
+            window: "#fafafb",
+            view: "#ffffff",
+            header: "#ebebed",
+            text: "#2e3436",
+            accent: "#3584e4",
+            key: "#1a5fb4",
+            string: "#813d9c",
+            number: "#c64600",
+            boolean: "#0d7377",
+            null: "#77767b",
+        }),
     },
     Theme {
         id: "dark",
         label: "Dark",
-        palette: None,
+        stock: true,
+        palette: Some(Palette {
+            dark: true,
+            window: "#242424",
+            view: "#1e1e1e",
+            header: "#303030",
+            text: "#ffffff",
+            accent: "#3584e4",
+            key: "#99c1f1",
+            string: "#dc8add",
+            number: "#ffa348",
+            boolean: "#6fd3c7",
+            null: "#9a9996",
+        }),
     },
     Theme {
         id: "midnight",
         label: "Midnight",
+        stock: false,
         palette: Some(Palette {
             dark: true,
             window: "#0b1020",
@@ -65,6 +95,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "synthwave",
         label: "Synthwave",
+        stock: false,
         palette: Some(Palette {
             dark: true,
             window: "#1a1033",
@@ -82,6 +113,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "dracula",
         label: "Dracula",
+        stock: false,
         palette: Some(Palette {
             dark: true,
             window: "#282a36",
@@ -99,6 +131,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "ocean",
         label: "Ocean",
+        stock: false,
         palette: Some(Palette {
             dark: true,
             window: "#08242b",
@@ -116,6 +149,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "sunset",
         label: "Sunset",
+        stock: false,
         palette: Some(Palette {
             dark: true,
             window: "#2a1320",
@@ -133,6 +167,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "nord",
         label: "Nord",
+        stock: false,
         palette: Some(Palette {
             dark: true,
             window: "#2e3440",
@@ -150,6 +185,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "paper",
         label: "Paper",
+        stock: false,
         palette: Some(Palette {
             dark: false,
             window: "#f1e7cf",
@@ -167,6 +203,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "bubblegum",
         label: "Bubblegum",
+        stock: false,
         palette: Some(Palette {
             dark: false,
             window: "#ffd9ec",
@@ -190,17 +227,16 @@ pub fn by_id(id: &str) -> &'static Theme {
 }
 
 fn color_scheme(theme: &Theme) -> adw::ColorScheme {
-    match (&theme.palette, theme.id) {
-        (Some(p), _) if p.dark => adw::ColorScheme::ForceDark,
-        (Some(_), _) => adw::ColorScheme::ForceLight,
-        (None, "light") => adw::ColorScheme::ForceLight,
-        (None, "dark") => adw::ColorScheme::ForceDark,
-        (None, _) => adw::ColorScheme::Default,
+    match &theme.palette {
+        Some(p) if p.dark => adw::ColorScheme::ForceDark,
+        Some(_) => adw::ColorScheme::ForceLight,
+        None => adw::ColorScheme::Default,
     }
 }
 
-/// CSS for a palette: libadwaita named colors plus the JSON syntax classes.
-pub fn palette_css(p: &Palette) -> String {
+/// CSS for a theme: libadwaita named colors (both `@define-color` and the `--*` variables) plus the JSON syntax classes. Named themes also
+/// get an accent line under the bars.
+pub fn palette_css(theme: &Theme, p: &Palette) -> String {
     let Palette {
         window,
         view,
@@ -214,6 +250,15 @@ pub fn palette_css(p: &Palette) -> String {
         null,
         ..
     } = p;
+    let bars = if theme.stock {
+        String::new()
+    } else {
+        format!(
+            "headerbar {{ box-shadow: 0 1px 0 alpha({accent}, 0.55); }}
+.summary-bar {{ background-color: {header}; border-top: 1px solid alpha({accent}, 0.55); }}
+"
+        )
+    };
     format!(
         "@define-color window_bg_color {window};
 @define-color window_fg_color {text};
@@ -231,9 +276,25 @@ pub fn palette_css(p: &Palette) -> String {
 @define-color accent_bg_color {accent};
 @define-color accent_color {accent};
 @define-color accent_fg_color #ffffff;
-headerbar {{ box-shadow: 0 1px 0 alpha({accent}, 0.55); }}
-.summary-bar {{ background-color: {header}; border-top: 1px solid alpha({accent}, 0.55); }}
-.json-key {{ color: {key}; }}
+:root {{
+  --window-bg-color: {window};
+  --window-fg-color: {text};
+  --view-bg-color: {view};
+  --view-fg-color: {text};
+  --headerbar-bg-color: {header};
+  --headerbar-backdrop-color: {window};
+  --headerbar-fg-color: {text};
+  --card-bg-color: {header};
+  --card-fg-color: {text};
+  --popover-bg-color: {header};
+  --popover-fg-color: {text};
+  --dialog-bg-color: {window};
+  --dialog-fg-color: {text};
+  --accent-bg-color: {accent};
+  --accent-color: {accent};
+  --accent-fg-color: #ffffff;
+}}
+{bars}.json-key {{ color: {key}; }}
 .json-string {{ color: {string}; }}
 .json-number {{ color: {number}; }}
 .json-bool {{ color: {boolean}; }}
@@ -243,7 +304,7 @@ headerbar {{ box-shadow: 0 1px 0 alpha({accent}, 0.55); }}
 }
 
 thread_local! {
-    static PROVIDER: OnceCell<gtk::CssProvider> = const { OnceCell::new() };
+    static PROVIDER: RefCell<Option<gtk::CssProvider>> = const { RefCell::new(None) };
 }
 
 /// Applies `theme` to the whole application.
@@ -253,17 +314,24 @@ pub fn apply(theme: &Theme) {
         return;
     };
     PROVIDER.with(|cell| {
-        let provider = cell.get_or_init(|| {
-            let provider = gtk::CssProvider::new();
-            // Above the dark-mode tints so palette syntax colors win.
-            gtk::style_context_add_provider_for_display(
-                &display,
-                &provider,
-                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 2,
-            );
-            provider
-        });
-        provider.load_from_string(&theme.palette.as_ref().map(palette_css).unwrap_or_default());
+        // Replacing the provider (instead of reloading its text) makes GTK drop the
+        // previous theme's named colors.
+        if let Some(old) = cell.borrow_mut().take() {
+            gtk::style_context_remove_provider_for_display(&display, &old);
+        }
+        let Some(palette) = &theme.palette else {
+            return;
+        };
+        let provider = gtk::CssProvider::new();
+        provider.load_from_string(&palette_css(theme, palette));
+        // Above the user's own gtk-4.0/gtk.css (e.g. shell-generated colors), which would
+        // otherwise repaint the chosen theme.
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_USER + 1,
+        );
+        cell.replace(Some(provider));
     });
 }
 
@@ -315,8 +383,9 @@ mod tests {
     #[test]
     fn css_carries_the_palette() {
         let theme = by_id("synthwave");
-        let css = palette_css(theme.palette.as_ref().unwrap());
+        let css = palette_css(theme, theme.palette.as_ref().unwrap());
         assert!(css.contains("@define-color window_bg_color #1a1033;"));
+        assert!(css.contains("--window-bg-color: #1a1033;"));
         assert!(css.contains(".json-key { color: #36f9f6; }"));
     }
 }

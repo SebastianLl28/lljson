@@ -126,11 +126,7 @@ impl Window {
         let stock = gio::Menu::new();
         let palettes = gio::Menu::new();
         for theme in THEMES {
-            let section = if theme.palette.is_some() {
-                &palettes
-            } else {
-                &stock
-            };
+            let section = if theme.stock { &stock } else { &palettes };
             section.append(
                 Some(theme.label),
                 Some(&format!("win.theme('{}')", theme.id)),
