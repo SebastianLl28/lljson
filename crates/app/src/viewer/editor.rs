@@ -4,7 +4,7 @@ use gtk::prelude::*;
 
 pub struct Editor {
     pub root: gtk::ScrolledWindow,
-    view: gtk::TextView,
+    pub(super) view: gtk::TextView,
 }
 
 impl Editor {

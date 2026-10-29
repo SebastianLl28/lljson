@@ -1,7 +1,8 @@
 //! Dev tooling, enabled in debug builds or with the `devtools` feature. Env vars:
 //!
 //! - `LLJSON_TAB=compare|viewer`: select the tab before anything else.
-//! - `LLJSON_VIEWER_FILE=path`: open that file in the Viewer tab.
+//! - `LLJSON_VIEWER_FILE=path`: open that file in the Viewer tab; with `LLJSON_VIEWER_LATENCY=1`
+//!   it runs the editing-latency probe instead (open, keystrokes, scroll, memory) and quits.
 //! - `LLJSON_TRACE=1`: timings since process start.
 //! - `LLJSON_SCREENSHOT=out.png`: render the window to PNG and quit;
 //!   `LLJSON_SCREENSHOT_DELAY_MS` sets the wait (default 1500).
@@ -67,7 +68,11 @@ pub fn install(app_window: &Rc<Window>) {
         app_window.select_tab(&tab);
     }
     if let Some(path) = std::env::var_os("LLJSON_VIEWER_FILE") {
-        app_window.open_in_viewer(path.into());
+        if std::env::var_os("LLJSON_VIEWER_LATENCY").is_some() {
+            app_window.probe_viewer(path.into());
+        } else {
+            app_window.open_in_viewer(path.into());
+        }
     }
     window.add_tick_callback(|_, _| {
         trace("first frame");
@@ -359,7 +364,7 @@ fn scroll_test(app_window: &Rc<Window>, seconds: f64) {
     });
 }
 
-fn report(name: &str, intervals: &[f64]) {
+pub(crate) fn report(name: &str, intervals: &[f64]) {
     if intervals.is_empty() {
         eprintln!("{name}: no frames");
         return;
@@ -384,7 +389,7 @@ fn report(name: &str, intervals: &[f64]) {
     );
 }
 
-fn report_memory() {
+pub(crate) fn report_memory() {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     for field in ["VmRSS", "VmHWM"] {
         if let Some(line) = status.lines().find(|l| l.starts_with(field)) {

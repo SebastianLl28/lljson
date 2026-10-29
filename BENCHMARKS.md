@@ -144,3 +144,65 @@ values on background threads (the UI thread only receives the result):
 
 Parsing the same file takes 1.06 s. `Rows::reveal` (expanding the ancestors of a result) runs on
 the UI thread, like a manual expand; it scans the visible rows once per collapsed level.
+
+## Viewer editor (Phase 11)
+
+Measured on **2026-10-28** with the same machine as above (60 Hz monitor), `release` profile with
+the `devtools` feature. The Viewer editor is a plain `GtkTextView`.
+
+- **How to reproduce:**
+  ```sh
+  lljson-cli generate --nodes 1000000 > 1m-indented.json
+  lljson-cli generate --nodes 1000000 --compact > 1m-minified.json
+  cargo build --release -p lljson --features devtools
+  LLJSON_TAB=viewer LLJSON_VIEWER_FILE=1m-indented.json LLJSON_VIEWER_LATENCY=1 target/release/lljson
+  ```
+- "Frozen" = time until the frame after the next one is finished (the UI thread cannot draw
+  before). A keystroke cannot be faster than 2 frame ticks (~17–33 ms at 60 Hz), so values up to
+  ~33 ms mean "no extra cost".
+
+### Indented documents (many short lines)
+
+| File | Read (bg thread) | `set_text` on UI thread | Frozen on open | Keystroke (start / middle / end, median) | Scroll | RSS |
+|---|---|---|---|---|---|---|
+| 100k nodes, 2.0 MiB | 4.8 ms | 35 ms | 93 ms | 33 / 18 / 31 ms | 60.1 fps, max 16.7 ms | 93 MiB |
+| 1M nodes, 20.3 MiB | 32 ms | 355 ms | **404 ms** | 18 / 33 / 33 ms | 60.0 fps, max 16.7 ms | 280 MiB |
+
+Typing and scrolling are fine. Opening a 20 MiB file freezes the window for about 0.4 s because
+`GtkTextBuffer::set_text` runs on the UI thread.
+
+### Minified documents (one very long line)
+
+| File | Frozen on open | Keystroke (median) |
+|---|---|---|
+| 20k nodes, 268 KiB | 412 ms | 171–179 ms |
+| 50k nodes, 668 KiB | 1.6 s | 748–761 ms |
+| 100k nodes, 1.4 MiB | 5.8 s | not measured |
+| 1M nodes, 13.3 MiB | **> 280 s (aborted, UI frozen at 100% CPU)** | not reached |
+
+Cost grows much faster than linearly with the length of a single line (GTK/Pango lays out a
+whole line as one unit). Scrolling stays at 60 fps once the line is laid out.
+
+### Conclusion
+
+Goals missed (no explicit Viewer goal exists in `SPEC.md`; the plan's rule of thumb is a frame
+over ~100 ms on open and ~50 ms per keystroke):
+
+1. Opening a 20 MiB indented file freezes the UI ~0.4 s.
+2. Minified (single-line) documents above ~100 KiB are unusable in a plain `GtkTextView`,
+   and the 1M-node minified file never finishes.
+
+Options for the user to choose from (none applied yet, per `CLAUDE.md`):
+
+- **A. Always pretty-print on load, off the UI thread:** if the text is valid JSON, format it on a
+  background thread (the `core` formatter does 1M nodes in tens of ms) before `set_text`. Removes
+  the long-line case for valid JSON (the common one) and is what the later "auto-format on paste"
+  phase wants anyway. Invalid, very long single lines still need B.
+- **B. Size/line-length threshold:** above N MiB, or when a line exceeds ~200 KB, break long lines or
+  open read-only, with a banner pointing to the Compare tab.
+- **C. Chunked `set_text`:** insert in slices from idle callbacks to remove the 0.4 s freeze;
+  does not fix long lines.
+- **D. `GtkSourceView`:** new dependency (needs approval); it shares the same `GtkTextView` layout
+  engine, so it would not fix long lines either.
+
+Recommendation: **A + C**, with **B** as the fallback for invalid single-line text.

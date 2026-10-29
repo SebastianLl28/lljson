@@ -2,6 +2,8 @@
 
 mod editor;
 mod file;
+#[cfg(any(debug_assertions, feature = "devtools"))]
+pub mod probe;
 
 use std::cell::Cell;
 use std::path::PathBuf;

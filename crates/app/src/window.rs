@@ -1256,6 +1256,12 @@ impl Window {
         self.viewer.open_path(path);
     }
 
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn probe_viewer(&self, path: std::path::PathBuf) {
+        self.select_tab(PAGE_VIEWER);
+        crate::viewer::probe::run(&self.viewer, &self.window, path);
+    }
+
     fn setup_tabs(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         self.stack.connect_visible_child_name_notify(move |_| {
