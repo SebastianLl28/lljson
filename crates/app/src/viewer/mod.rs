@@ -2,6 +2,7 @@
 
 mod editor;
 mod file;
+mod prepare;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 pub mod probe;
 
@@ -65,9 +66,12 @@ impl ViewerPage {
     /// Reads on a background thread and replaces the text; a newer request makes older
     /// results be dropped.
     pub fn open_path(self: &Rc<Self>, path: PathBuf) {
+        self.show_when_ready(file::spawn_read(path));
+    }
+
+    fn show_when_ready(self: &Rc<Self>, receiver: async_channel::Receiver<file::ReadResult>) {
         let id = self.generation.get() + 1;
         self.generation.set(id);
-        let receiver = file::spawn_read(path);
         let weak = Rc::downgrade(self);
         glib::MainContext::default().spawn_local(async move {
             let Ok(result) = receiver.recv().await else {
@@ -141,9 +145,7 @@ impl ViewerPage {
             self.open_file(first);
             true
         } else if let Ok(text) = value.get::<String>() {
-            // A pending file read must not overwrite the dropped text.
-            self.generation.set(self.generation.get() + 1);
-            self.editor.set_text(&text);
+            self.show_when_ready(file::spawn_prepare(text));
             true
         } else {
             false

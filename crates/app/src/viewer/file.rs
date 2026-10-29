@@ -5,6 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
+use super::prepare::prepare;
+
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
 #[derive(Debug)]
@@ -52,15 +54,25 @@ pub fn read_text(path: &Path) -> ReadResult {
     decode(bytes).map_err(|_| ReadError::NotUtf8)
 }
 
-/// Reads on a background thread; the receiver yields exactly one result.
+/// Reads the file on a background thread and prepares the text for the editor (valid JSON
+/// is pretty-printed); the receiver yields exactly one result.
 pub fn spawn_read(path: PathBuf) -> async_channel::Receiver<ReadResult> {
+    spawn(move || read_text(&path).map(prepare))
+}
+
+/// Prepares text that is already in memory (dropped text) on a background thread.
+pub fn spawn_prepare(text: String) -> async_channel::Receiver<ReadResult> {
+    spawn(move || Ok(prepare(text)))
+}
+
+fn spawn(job: impl FnOnce() -> ReadResult + Send + 'static) -> async_channel::Receiver<ReadResult> {
     let (sender, receiver) = async_channel::bounded(1);
     let worker = sender.clone();
     let spawned = std::thread::Builder::new()
         .name("lljson-read".to_owned())
         .spawn(move || {
             // A dropped receiver (stale request) just discards the result.
-            let _ = worker.send_blocking(read_text(&path));
+            let _ = worker.send_blocking(job());
         });
     if spawned.is_err() {
         let _ = sender.try_send(Err(ReadError::Interrupted));
@@ -127,9 +139,34 @@ mod tests {
         let receiver = spawn_read(path.clone());
         assert_eq!(
             receiver.recv_blocking().expect("result").expect("read"),
-            "[true]"
+            "[\n  true\n]"
         );
         assert!(receiver.recv_blocking().is_err(), "only one result");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn spawn_read_formats_valid_json() {
+        let path = temp("minified.json", br#"{"a":1}"#);
+        let text = spawn_read(path.clone())
+            .recv_blocking()
+            .expect("result")
+            .expect("read");
+        assert_eq!(text, "{\n  \"a\": 1\n}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn spawn_prepare_formats_text_and_keeps_invalid_text() {
+        let formatted = spawn_prepare("[1]".to_owned())
+            .recv_blocking()
+            .expect("result")
+            .expect("prepared");
+        assert_eq!(formatted, "[\n  1\n]");
+        let kept = spawn_prepare("[1".to_owned())
+            .recv_blocking()
+            .expect("result")
+            .expect("prepared");
+        assert_eq!(kept, "[1");
     }
 }
