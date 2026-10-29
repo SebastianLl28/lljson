@@ -83,3 +83,33 @@ Do not advance to the next phase without confirmation.
 - [ ] Command palette (Ctrl+K).
 - [ ] Configurable numeric tolerance.
 - [ ] "Compare with…" integration in Nautilus.
+
+## Phase 11 — Viewer tab: tabs and basic editor
+Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
+- [ ] Tab switcher (Compare / Viewer); Compare unchanged.
+- [ ] Viewer editor: editable text, can be emptied and pasted into.
+- [ ] Open file, drag and drop, copy all.
+- [ ] Measure editing latency with the 1M-node file and report numbers.
+
+## Phase 12 — Viewer tab: live validation
+- [ ] Debounced background parse with generation counter.
+- [ ] Status bar with valid / error `line:col`.
+- [ ] Error hints in `core` (with tests) and error mark in the editor.
+- [ ] Tolerant mode toggle with auto-fix.
+
+## Phase 13 — Viewer tab: formatting
+- [ ] Auto-format on paste when the content is valid JSON.
+- [ ] Format, minify and sort-keys buttons and shortcuts (background thread for large input).
+
+## Phase 14 — Viewer tab: tree viewer
+- [ ] Virtualized flat-row model from the parsed document.
+- [ ] Type icons, container length and array indices.
+- [ ] Expand/collapse per node, expand all, collapse all.
+
+## Phase 15 — Viewer tab: utilities
+- [ ] Copy node path and value.
+- [ ] Search over keys and values.
+
+## Phase 16 — Viewer tab: editor polish
+- [ ] Line numbers and syntax colors.
+- [ ] Two-way sync between tree selection and text cursor (offset↔node mapping in `core`, with tests).

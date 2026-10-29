@@ -97,6 +97,11 @@ not-so-recent GNOME runtimes.
 - Copy a node's value.
 - Light/dark theme following the system.
 
+### Viewer tab
+A second tab for a single document: editable text with live validation (line/column error and
+hint), auto-format on paste, and a virtualized tree viewer with type icons, lengths and indices.
+Details in `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`.
+
 ## Post-MVP features
 - jq/JSONPath filter applied to both sides before comparing (flagship feature).
 - Export the diff as JSON Patch (RFC 6902) and Merge Patch (RFC 7396).
