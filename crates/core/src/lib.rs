@@ -32,7 +32,7 @@ pub use rows::{
 };
 pub use search::{MatchMode, Query, Scope, SearchError};
 pub use source::Source;
-pub use tree::{TreeRow, TreeRows};
+pub use tree::{TreeLabel, TreeRow, TreeRows, TreeText, tree_text};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

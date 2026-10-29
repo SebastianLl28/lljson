@@ -5,8 +5,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use lljson_core::{Cell, Document, RowKind, TreeRows, cell_text};
 use std::sync::Arc;
+
+use lljson_core::{Document, Kind, TreeLabel, TreeRows, tree_text};
 
 use super::validate::Tree;
 use crate::view::{RowsModel, token_class};
@@ -65,8 +66,21 @@ impl TreeView {
     }
 }
 
+/// Short symbol standing for a node type, drawn in the color of its value.
+fn type_icon(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Object => "{}",
+        Kind::Array => "[]",
+        Kind::String => "“”",
+        Kind::Number => "#",
+        Kind::Bool => "◑",
+        Kind::Null => "∅",
+    }
+}
+
 struct RowWidgets {
     root: gtk::Box,
+    icon: gtk::Label,
     key: gtk::Label,
     value: gtk::Label,
 }
@@ -79,22 +93,32 @@ impl RowWidgets {
                 .single_line_mode(true)
                 .build()
         };
+        let icon = label();
+        icon.set_width_chars(3);
+        icon.set_xalign(0.5);
         let key = label();
-        key.add_css_class("json-key");
         let value = label();
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .css_classes(["json-row"])
             .build();
+        root.append(&icon);
         root.append(&key);
         root.append(&value);
-        RowWidgets { root, key, value }
+        RowWidgets {
+            root,
+            icon,
+            key,
+            value,
+        }
     }
 
     fn from_root(root: gtk::Box) -> Option<RowWidgets> {
-        let key = root.first_child()?;
+        let icon = root.first_child()?;
+        let key = icon.next_sibling()?;
         let value = key.next_sibling()?;
         Some(RowWidgets {
+            icon: icon.downcast().ok()?,
             key: key.downcast().ok()?,
             value: value.downcast().ok()?,
             root,
@@ -126,26 +150,53 @@ fn factory(data: Rc<RefCell<TreeData>>) -> gtk::SignalListItemFactory {
 }
 
 fn bind(widgets: &RowWidgets, data: &TreeData, position: usize) {
-    widgets.key.set_label("");
-    widgets.value.set_label("");
+    for label in [&widgets.icon, &widgets.key, &widgets.value] {
+        label.set_label("");
+    }
     let (Some(row), Some(doc)) = (data.rows.get(position), data.document.as_deref()) else {
         return;
     };
     widgets
         .root
         .set_margin_start(i32::from(row.depth.min(MAX_INDENT_DEPTH)) * INDENT_PX);
-    let text = cell_text(
-        doc,
-        Cell {
-            node: row.node,
-            kind: RowKind::Leaf,
-        },
-    );
-    if let Some(key) = &text.key {
-        widgets.key.set_label(&format!("{key}: "));
+    let text = tree_text(doc, row);
+    let value_class = token_class(text.value_kind);
+    widgets.icon.set_label(type_icon(text.kind));
+    widgets.icon.set_css_classes(&[value_class]);
+    // Containers read `users [3]`; scalars `name: "x"`.
+    let separator = if text.length.is_some() { " " } else { ": " };
+    match &text.label {
+        TreeLabel::Root => {}
+        TreeLabel::Key(key) => {
+            widgets.key.set_label(&format!("{key}{separator}"));
+            widgets.key.set_css_classes(&["json-key"]);
+        }
+        TreeLabel::Index(index) => {
+            widgets.key.set_label(&format!("[{index}]{separator}"));
+            widgets.key.set_css_classes(&["dim-label"]);
+        }
     }
     widgets.value.set_label(&text.value);
-    widgets
-        .value
-        .set_css_classes(&["json-value", token_class(text.value_kind)]);
+    widgets.value.set_css_classes(&["json-value", value_class]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_type_has_a_distinct_icon() {
+        let kinds = [
+            Kind::Object,
+            Kind::Array,
+            Kind::String,
+            Kind::Number,
+            Kind::Bool,
+            Kind::Null,
+        ];
+        let mut icons: Vec<&str> = kinds.into_iter().map(type_icon).collect();
+        icons.sort_unstable();
+        icons.dedup();
+        assert_eq!(icons.len(), kinds.len());
+    }
 }
