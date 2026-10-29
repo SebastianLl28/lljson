@@ -33,3 +33,7 @@
 .summary-modified { background-color: alpha(#f5c211, 0.40); }
 
 .json-row.diff-equal-section { opacity: 0.6; }
+
+/* Caja de reglas del diálogo de opciones. */
+.options-rules { border: 1px solid alpha(currentColor, 0.25); border-radius: 8px; }
+.options-rules textview, .options-rules text { background: transparent; }

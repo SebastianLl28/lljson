@@ -10,6 +10,7 @@ use gtk::{gdk, gio, glib};
 use jsonlens_core::{DiffOptions, Direction, Rows, Splice, diff};
 
 use crate::loader::Input;
+use crate::options::{self, OptionsText};
 use crate::pane::{Pane, Side};
 use crate::summary::{State, SummaryBar};
 use crate::view::{self, Comparison, RowsModel, to_u32};
@@ -26,6 +27,7 @@ pub const ACCELS: &[(&str, &[&str])] = &[
     ("win.next-change", &["F3", "<Alt>Down"]),
     ("win.prev-change", &["<Shift>F3", "<Alt>Up"]),
     ("win.hide-equal", &["<Control>h"]),
+    ("win.diff-options", &["<Control>comma"]),
 ];
 
 pub struct Window {
@@ -44,6 +46,9 @@ pub struct Window {
     change_cursor: Cell<Option<usize>>,
     /// Las secciones iguales se muestran colapsadas.
     hide_equal: Cell<bool>,
+    /// Opciones del diff y el texto con el que se escribieron en el diálogo.
+    diff_options: RefCell<DiffOptions>,
+    options_text: RefCell<OptionsText>,
 }
 
 impl Window {
@@ -95,6 +100,13 @@ impl Window {
 
         let title = adw::WindowTitle::new("jsonlens", "");
         let header = adw::HeaderBar::builder().title_widget(&title).build();
+        header.pack_end(
+            &gtk::Button::builder()
+                .icon_name("preferences-system-symbolic")
+                .action_name("win.diff-options")
+                .tooltip_text("Opciones de comparación (Ctrl+,)")
+                .build(),
+        );
         header.pack_start(
             &gtk::ToggleButton::builder()
                 .icon_name("view-conceal-symbolic")
@@ -151,6 +163,8 @@ impl Window {
             rows_generation: Cell::new(0),
             change_cursor: Cell::new(None),
             hide_equal: Cell::new(false),
+            diff_options: RefCell::new(DiffOptions::default()),
+            options_text: RefCell::new(OptionsText::default()),
         }
     }
 
@@ -170,6 +184,7 @@ impl Window {
         }
         this.setup_navigation();
         this.setup_hide_equal();
+        this.setup_options();
         this.update_title();
         this.sync_scroll();
 
@@ -213,6 +228,31 @@ impl Window {
             this.hide_equal.set(hide);
             action.set_state(&hide.to_variant());
             this.rebuild_rows();
+        });
+        self.window.add_action(&action);
+    }
+
+    /// Diálogo con la clave de arrays y las rutas a ignorar.
+    fn setup_options(self: &Rc<Self>) {
+        let action = gio::SimpleAction::new("diff-options", None);
+        let weak = Rc::downgrade(self);
+        action.connect_activate(move |_, _| {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            let current = this.options_text.borrow().clone();
+            let weak = Rc::downgrade(&this);
+            options::present(&this.window, &current, move |text, options| {
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                if *this.options_text.borrow() == text {
+                    return;
+                }
+                this.options_text.replace(text);
+                this.diff_options.replace(options);
+                this.rebuild_rows();
+            });
         });
         self.window.add_action(&action);
     }
@@ -333,11 +373,11 @@ impl Window {
         let left = self.left.document();
         let right = self.right.document();
         let hide_equal = self.hide_equal.get();
+        let options = self.diff_options.borrow().clone();
         let (sender, receiver) = async_channel::bounded(1);
         let spawned = std::thread::Builder::new()
             .name("jsonlens-filas".to_owned())
             .spawn(move || {
-                let options = DiffOptions::default();
                 let diff = match (left.as_deref(), right.as_deref()) {
                     (Some(l), Some(r)) => Some(diff(l, r, &options)),
                     _ => None,
@@ -392,6 +432,19 @@ impl Window {
             // Los documentos anteriores se liberan aquí, después de actualizar la vista.
             drop(old);
         });
+    }
+
+    /// Aplica opciones como si se hubieran escrito en el diálogo (herramientas de desarrollo).
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    pub fn set_options_text(self: &Rc<Self>, text: OptionsText) {
+        match options::parse(&text) {
+            Ok(options) => {
+                self.options_text.replace(text);
+                self.diff_options.replace(options);
+                self.rebuild_rows();
+            }
+            Err(errors) => self.toast(&errors.join(" · ")),
+        }
     }
 
     /// Ajuste vertical del panel izquierdo (herramientas de desarrollo).

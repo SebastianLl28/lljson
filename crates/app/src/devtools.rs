@@ -11,6 +11,7 @@
 //!   400 ms antes de la captura.
 //! - `JSONLENS_ACTIONS=win.hide-equal,…`: activa esas acciones de la ventana 800 ms antes
 //!   de la captura.
+//! - `JSONLENS_ARRAY_KEY=id` y `JSONLENS_IGNORE=regla;regla`: opciones de comparación.
 //! - `JSONLENS_SCROLL=px`: desplaza el panel izquierdo 300 ms antes de la captura.
 //! - `JSONLENS_SCROLL_TEST=segundos`: cuando las filas están listas, hace scroll continuo
 //!   la mitad del tiempo y saltos aleatorios la otra mitad, mide la duración de cada
@@ -75,6 +76,14 @@ pub fn install(app_window: &Rc<Window>) {
                     scroll_test(&app_window, seconds);
                 }
             })));
+        });
+    }
+    let array_key = std::env::var("JSONLENS_ARRAY_KEY").unwrap_or_default();
+    let ignore = std::env::var("JSONLENS_IGNORE").unwrap_or_default();
+    if !array_key.is_empty() || !ignore.is_empty() {
+        app_window.set_options_text(crate::options::OptionsText {
+            array_key,
+            ignore: ignore.replace(';', "\n"),
         });
     }
     schedule_screenshot(app_window);

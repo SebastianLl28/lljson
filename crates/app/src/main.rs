@@ -4,6 +4,7 @@ mod args;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 mod devtools;
 mod loader;
+mod options;
 mod pane;
 mod summary;
 mod view;

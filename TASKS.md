@@ -60,7 +60,7 @@ No se avanza de fase sin confirmación.
 - [x] Colapsar secciones iguales.
 
 ## Fase 8 — App: utilidades del MVP
-- [ ] Configurar clave de arrays e ignorar rutas.
+- [x] Configurar clave de arrays e ignorar rutas.
 - [ ] Copiar ruta y valor de nodo.
 - [ ] Comparar portapapeles contra archivo.
 - [ ] Botones de formatear/minificar/ordenar.
