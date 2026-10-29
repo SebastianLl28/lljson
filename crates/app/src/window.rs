@@ -13,6 +13,7 @@ use crate::loader::Input;
 use crate::nodecopy::{self, Copy};
 use crate::options::{self, OptionsText};
 use crate::pane::{Pane, Side};
+use crate::session::{self, Scheme};
 use crate::summary::{State, SummaryBar};
 use crate::transform::Transform;
 use crate::view::{self, Comparison, RowsModel, to_u32};
@@ -266,22 +267,33 @@ impl Window {
     }
 
     fn setup_color_scheme(self: &Rc<Self>) {
+        let apply = |scheme: Scheme| {
+            adw::StyleManager::default().set_color_scheme(match scheme {
+                Scheme::System => adw::ColorScheme::Default,
+                Scheme::Light => adw::ColorScheme::ForceLight,
+                Scheme::Dark => adw::ColorScheme::ForceDark,
+            });
+        };
+        let saved = session::load_scheme();
+        apply(saved);
         let action = gio::SimpleAction::new_stateful(
             "color-scheme",
             Some(glib::VariantTy::STRING),
-            &"system".to_variant(),
+            &saved.as_str().to_variant(),
         );
-        action.connect_activate(|action, param| {
+        let weak = Rc::downgrade(self);
+        action.connect_activate(move |action, param| {
             let Some(value) = param.and_then(|p| p.str()) else {
                 return;
             };
-            let scheme = match value {
-                "light" => adw::ColorScheme::ForceLight,
-                "dark" => adw::ColorScheme::ForceDark,
-                _ => adw::ColorScheme::Default,
-            };
-            adw::StyleManager::default().set_color_scheme(scheme);
-            action.set_state(&value.to_variant());
+            let scheme = Scheme::parse(value);
+            apply(scheme);
+            action.set_state(&scheme.as_str().to_variant());
+            if let Err(err) = session::save_scheme(scheme)
+                && let Some(this) = weak.upgrade()
+            {
+                this.toast(&format!("Could not save the theme: {err}"));
+            }
         });
         self.window.add_action(&action);
     }

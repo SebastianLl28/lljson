@@ -7,6 +7,7 @@ mod loader;
 mod nodecopy;
 mod options;
 mod pane;
+mod session;
 mod summary;
 mod transform;
 mod view;
@@ -45,13 +46,13 @@ fn main() -> glib::ExitCode {
     app.connect_activate(move |app| {
         view::install_styles();
         let window = window::Window::new(app);
-        if let Some((left, right)) = inputs.take() {
-            if let Some(input) = left {
-                window.load(Side::Left, input);
-            }
-            if let Some(input) = right {
-                window.load(Side::Right, input);
-            }
+        let (left, right) = inputs.take().unwrap_or((None, None));
+        // Panes not given on the command line come back as they were last time.
+        if let Some(input) = left.or_else(|| session::restore(Side::Left)) {
+            window.load(Side::Left, input);
+        }
+        if let Some(input) = right.or_else(|| session::restore(Side::Right)) {
+            window.load(Side::Right, input);
         }
         window.window.present();
         #[cfg(any(debug_assertions, feature = "devtools"))]

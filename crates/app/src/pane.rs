@@ -10,6 +10,7 @@ use gtk::{gio, glib};
 use lljson_core::Document;
 
 use crate::loader::{self, Input, LoadError, LoadResult, Loaded};
+use crate::session;
 use crate::view::RowsModel;
 
 /// Loads slower than this show the progress indicator.
@@ -38,6 +39,7 @@ impl Side {
 }
 
 pub struct Pane {
+    side: Side,
     pub root: gtk::Box,
     title: gtk::Label,
     stats: gtk::Label,
@@ -175,6 +177,7 @@ impl Pane {
         root.append(&stack);
 
         Rc::new(Pane {
+            side,
             root,
             title,
             stats,
@@ -246,6 +249,18 @@ impl Pane {
         });
     }
 
+    /// Keeps a copy of the document so the next run starts with it.
+    fn persist(&self, loaded: &Loaded) {
+        let side = self.side;
+        let name = loaded.name.clone();
+        let document = Arc::clone(&loaded.document);
+        std::thread::spawn(move || {
+            if let Err(err) = session::save_pane(side, &name, document.source_bytes()) {
+                eprintln!("lljson: could not save the {} pane: {err}", side.name());
+            }
+        });
+    }
+
     fn finish(&self, result: LoadResult) {
         self.loading.set(false);
         match result {
@@ -264,6 +279,7 @@ impl Pane {
                     group_digits(loaded.document.node_count()),
                     format_bytes(loaded.document.source_bytes().len())
                 ));
+                self.persist(&loaded);
                 self.document.replace(Some(loaded));
             }
             Err(err) => {
