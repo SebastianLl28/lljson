@@ -5,11 +5,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gtk::glib;
+use gtk::{gdk, glib};
 use gtk::prelude::*;
 use lljson_core::{Document, Kind, TreeLabel, TreeRows, tree_text};
 
 use super::validate::Tree;
+use crate::nodecopy::{self, Copy};
 use crate::view::{RowsModel, token_class};
 
 const INDENT_PX: i32 = 16;
@@ -18,6 +19,9 @@ const MAX_INDENT_DEPTH: u16 = 200;
 
 const EXPANDED_ICON: &str = "pan-down-symbolic";
 const COLLAPSED_ICON: &str = "pan-end-symbolic";
+
+/// Opens the context menu of the row at a position, at a point of the given widget.
+type OnMenu = Rc<dyn Fn(u32, &gtk::Widget, f64, f64)>;
 
 #[derive(Default)]
 struct TreeData {
@@ -39,16 +43,23 @@ pub struct TreeView {
 }
 
 impl TreeView {
-    pub fn new() -> TreeView {
+    /// `notify` shows a short message to the user (copy confirmations).
+    pub fn new(notify: nodecopy::Notify) -> TreeView {
         let model = RowsModel::new();
         let data = Rc::new(RefCell::new(TreeData::default()));
         let on_toggle: Rc<dyn Fn(u32)> = {
             let (model, data) = (model.clone(), Rc::clone(&data));
             Rc::new(move |position| toggle(&model, &data, position as usize))
         };
+        let on_menu: OnMenu = {
+            let data = Rc::clone(&data);
+            Rc::new(move |position, widget, x, y| {
+                show_menu(&data, &notify, position as usize, widget, x, y);
+            })
+        };
         let list = gtk::ListView::new(
             Some(gtk::NoSelection::new(Some(model.clone()))),
-            Some(factory(Rc::clone(&data), Rc::clone(&on_toggle))),
+            Some(factory(Rc::clone(&data), Rc::clone(&on_toggle), on_menu)),
         );
         // Double click or Enter on a row.
         list.connect_activate(move |_, position| on_toggle(position));
@@ -128,6 +139,29 @@ fn toggle(model: &RowsModel, data: &RefCell<TreeData>, position: usize) {
     if let Some((splice, len)) = splice {
         model.splice(splice.position, splice.removed, splice.added, len);
     }
+}
+
+/// Right-click menu of the row at `position`: copy its path or its value.
+fn show_menu(
+    data: &RefCell<TreeData>,
+    notify: &nodecopy::Notify,
+    position: usize,
+    widget: &gtk::Widget,
+    x: f64,
+    y: f64,
+) {
+    let (node, doc) = {
+        let data = data.borrow();
+        let (Some(row), Some(doc)) = (data.rows.get(position), data.document.clone()) else {
+            return;
+        };
+        (row.node, doc)
+    };
+    let clipboard = widget.clipboard();
+    let notify = Rc::clone(notify);
+    nodecopy::show_menu(widget, x, y, move |what: Copy| {
+        nodecopy::copy(&clipboard, &doc, node, what, &notify);
+    });
 }
 
 /// Rebuilds the whole row list on a background thread (it can hold a million rows) and swaps
@@ -252,7 +286,11 @@ impl RowWidgets {
     }
 }
 
-fn factory(data: Rc<RefCell<TreeData>>, on_toggle: Rc<dyn Fn(u32)>) -> gtk::SignalListItemFactory {
+fn factory(
+    data: Rc<RefCell<TreeData>>,
+    on_toggle: Rc<dyn Fn(u32)>,
+    on_menu: OnMenu,
+) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
     factory.connect_setup(move |_, item| {
         let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
@@ -269,6 +307,19 @@ fn factory(data: Rc<RefCell<TreeData>>, on_toggle: Rc<dyn Fn(u32)>) -> gtk::Sign
             }
         });
         widgets.expander.add_controller(click);
+        let secondary = gtk::GestureClick::builder()
+            .button(gdk::BUTTON_SECONDARY)
+            .build();
+        let weak_item = item.downgrade();
+        let on_menu = Rc::clone(&on_menu);
+        let row = widgets.root.clone();
+        secondary.connect_pressed(move |gesture, _, x, y| {
+            if let Some(item) = weak_item.upgrade() {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                on_menu(item.position(), row.upcast_ref(), x, y);
+            }
+        });
+        widgets.root.add_controller(secondary);
         item.set_child(Some(&widgets.root));
     });
     factory.connect_bind(move |_, item| {

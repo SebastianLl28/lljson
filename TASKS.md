@@ -110,7 +110,7 @@ Spec: `docs/superpowers/specs/2026-10-28-viewer-tab-design.md`
 - [x] Expand/collapse per node, expand all, collapse all.
 
 ## Phase 15 — Viewer tab: utilities
-- [ ] Copy node path and value.
+- [x] Copy node path and value.
 - [ ] Search over keys and values.
 
 ## Phase 16 — Viewer tab: editor polish

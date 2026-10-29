@@ -114,7 +114,11 @@ impl ViewerPage {
         content.append(&editor.root);
         let status = StatusBar::new();
         content.append(&status.root);
-        let tree = TreeView::new();
+        let root = adw::ToastOverlay::new();
+        let tree = TreeView::new({
+            let root = root.clone();
+            Rc::new(move |message| root.add_toast(adw::Toast::new(message)))
+        });
         // Editor on the left, tree on the right; neither pane may be squeezed out.
         let split = gtk::Paned::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -125,7 +129,6 @@ impl ViewerPage {
             .shrink_start_child(false)
             .shrink_end_child(false)
             .build();
-        let root = adw::ToastOverlay::new();
         root.set_child(Some(&split));
 
         let this = Rc::new(ViewerPage {
