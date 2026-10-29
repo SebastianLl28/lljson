@@ -1,8 +1,12 @@
 //! Viewer tab: edit and inspect a single JSON document.
 
+mod editor;
+
 use std::rc::Rc;
 
 use adw::prelude::*;
+
+use self::editor::Editor;
 
 pub struct ViewerPage {
     root: gtk::Widget,
@@ -10,10 +14,9 @@ pub struct ViewerPage {
 
 impl ViewerPage {
     pub fn new() -> Rc<ViewerPage> {
-        let root = adw::StatusPage::builder()
-            .icon_name("text-x-generic-symbolic")
-            .title("Viewer")
-            .build();
+        let editor = Editor::new();
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.append(&editor.root);
         Rc::new(ViewerPage {
             root: root.upcast(),
         })
